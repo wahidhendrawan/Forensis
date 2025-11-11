@@ -1,0 +1,11 @@
+title: Mimikatz Indicator in Memory Output
+id: a1b2c3d4-0003
+description: Detects presence of Mimikatz in memory analysis output
+status: experimental
+level: critical
+logsource:
+  category: memory
+detection:
+  selection:
+    message: mimikatz
+  condition: selection

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row mb-4">
+  <div class="col-12 text-center">
+    <h1 class="display-5 fw-bold mb-2">Forensis</h1>
+    <p class="lead text-muted">Modern, simple Forensics &amp; Analysis toolkit for logs, network traffic, and memory.</p>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-md-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h5 class="card-title">Log Parser &amp; Analyzer</h5>
+        <p class="card-text">
+          Parse common log formats, detect anomalies, and correlate events with Sigma rules to speed up threat hunting.
+        </p>
+        <a href="{{ url_for('log_analyzer') }}" class="btn btn-primary w-100">Open Log Analyzer</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h5 class="card-title">Network Traffic Analyzer</h5>
+        <p class="card-text">
+          Analyze PCAP files, highlight suspicious flows and potential beaconing, then correlate with detection rules.
+        </p>
+        <a href="{{ url_for('network_analyzer') }}" class="btn btn-primary w-100">Open Network Analyzer</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h5 class="card-title">Memory Forensics Helper</h5>
+        <p class="card-text">
+          Generate memory analysis playbooks and quickly triage results using automation and Sigma rule correlation.
+        </p>
+        <a href="{{ url_for('memory_helper') }}" class="btn btn-primary w-100">Open Memory Helper</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

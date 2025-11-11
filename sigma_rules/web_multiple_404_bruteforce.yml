@@ -1,0 +1,11 @@
+title: Web Multiple 404/401 Errors from Same IP
+id: a1b2c3d4-0004
+description: Indicates enumeration or brute-force attempts on web paths
+status: experimental
+level: medium
+logsource:
+  category: webserver
+detection:
+  selection:
+    status: ['401', '403', '404']
+  condition: selection

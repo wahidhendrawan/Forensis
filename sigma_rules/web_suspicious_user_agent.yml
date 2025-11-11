@@ -1,0 +1,17 @@
+title: Suspicious Web User-Agent
+id: a1b2c3d4-0001
+description: Detects suspicious or scanning-related User-Agent strings
+status: experimental
+level: medium
+logsource:
+  category: webserver
+  product: apache
+detection:
+  selection:
+    message:
+      - sqlmap
+      - nikto
+      - acunetix
+      - dirbuster
+      - wpscan
+  condition: selection

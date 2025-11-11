@@ -1,0 +1,11 @@
+title: Suspicious Remote Access Ports
+id: a1b2c3d4-0005
+description: Detects flows to high-risk remote access / tunneling ports
+status: experimental
+level: medium
+logsource:
+  category: network_traffic
+detection:
+  selection:
+    dst_port: ['22', '23', '3389', '4444', '8080']
+  condition: selection

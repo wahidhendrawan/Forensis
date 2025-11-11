@@ -1,0 +1,16 @@
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+pre code {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.card {
+  border-radius: 1rem;
+}
+
+.navbar-brand {
+  letter-spacing: 0.03em;
+}

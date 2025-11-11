@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <title>Forensis - Forensics &amp; Analysis</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  </head>
+  <body class="bg-body-tertiary">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+      <div class="container-fluid">
+        <a class="navbar-brand fw-bold" href="{{ url_for('index') }}">Forensis</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+          <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+            {% if session.get('authenticated') %}
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('log_analyzer') }}">Log Parser &amp; Analyzer</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('network_analyzer') }}">Network Traffic Analyzer</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('memory_helper') }}">Memory Forensics Helper</a>
+            </li>
+            {% endif %}
+          </ul>
+          <div class="d-flex align-items-center gap-3">
+            <div class="d-flex align-items-center gap-2">
+              <span class="text-light small">Theme</span>
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" role="switch" id="themeToggle">
+                <label class="form-check-label text-light small" for="themeToggle">Dark</label>
+              </div>
+            </div>
+            {% if session.get('authenticated') %}
+              <span class="text-light small me-1">
+                {{ session.get('username', 'admin') }}
+              </span>
+              <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-light">Logout</a>
+            {% else %}
+              <a href="{{ url_for('login') }}" class="btn btn-sm btn-outline-light">Login</a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <main class="container py-4">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="mb-3">
+            {% for category, message in messages %}
+              <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+  </body>
+</html>
