@@ -1,0 +1,16 @@
+title: Suspicious PowerShell Usage in Logs
+id: a1b2c3d4-0006
+description: Detects risky PowerShell command line patterns
+status: experimental
+level: high
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    message:
+      - "powershell.exe -enc"
+      - "powershell.exe -encodedcommand"
+      - "IEX("
+      - "DownloadString"
+  condition: selection

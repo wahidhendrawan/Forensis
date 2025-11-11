@@ -1,0 +1,11 @@
+title: Potential Beaconing Network Flow
+id: a1b2c3d4-0002
+description: Flags long-lived low-volume flows that may indicate C2 beaconing
+status: experimental
+level: high
+logsource:
+  category: network_traffic
+detection:
+  selection:
+    source: pcap_flow
+  condition: selection

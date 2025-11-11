@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-12 d-flex justify-content-between align-items-center">
+    <div>
+      <h2 class="mb-0">Analytics Dashboard</h2>
+      <p class="text-muted mb-0">Visual overview of the latest Forensis analyses.</p>
+    </div>
+    <div class="d-flex flex-column flex-sm-row gap-2">
+      <a href="{{ url_for('export_report_bundle') }}" class="btn btn-sm btn-outline-info">
+        Download Report Bundle (ZIP)
+      </a>
+      <form method="post" action="{{ url_for('sigma_refresh') }}">
+        <button class="btn btn-sm btn-outline-secondary" type="submit">Reload Sigma (local)</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="row mb-4">
+  <div class="col-12">
+    <form method="post" action="{{ url_for('sigma_sync') }}" class="row g-2 align-items-center">
+      <div class="col-md-8">
+        <label class="form-label small mb-1">Sigma URLs (comma-separated)</label>
+        <input type="text" name="sigma_urls" class="form-control form-control-sm"
+               placeholder="https://raw.githubusercontent.com/.../rule1.yml, https://.../rule2.yml">
+        <div class="form-text small mt-1">
+          You can also set <code>FORENSIS_SIGMA_URLS</code> to load presets automatically.
+        </div>
+      </div>
+      <div class="col-md-4 d-flex align-items-end">
+        <button class="btn btn-sm btn-primary w-100" type="submit">Sync Sigma from URLs</button>
+      </div>
+    </form>
+    <div class="mt-2">
+      <span class="small text-muted d-block mb-1">Presets (SigmaHQ examples):</span>
+      <div class="btn-group btn-group-sm" role="group" aria-label="Sigma presets">
+        <button type="button" class="btn btn-outline-secondary sigma-preset"
+                data-urls="https://raw.githubusercontent.com/SigmaHQ/sigma/refs/heads/master/rules/web/web_cve_2017_5638_struts_rce.yml">
+          SigmaHQ Web Struts RCE
+        </button>
+        <button type="button" class="btn btn-outline-secondary sigma-preset"
+                data-urls="https://raw.githubusercontent.com/SigmaHQ/sigma/refs/heads/master/rules/windows/builtin/security/win_security_failed_logon.yml">
+          SigmaHQ Windows Failed Logon
+        </button>
+        <button type="button" class="btn btn-outline-secondary sigma-preset"
+                data-urls="https://raw.githubusercontent.com/SigmaHQ/sigma/refs/heads/master/rules/network/net_proxy_tunnel_tools.yml">
+          SigmaHQ Network Proxy Tunnels
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-md-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="card-title">Log Analysis</h6>
+        <p class="small text-muted mb-1">Total parsed vs anomalies</p>
+        <canvas id="logsChart" height="140"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="card-title">Network Flows</h6>
+        <p class="small text-muted mb-1">Flows vs suspicious flows</p>
+        <canvas id="networkChart" height="140"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="card-title">Memory Triage</h6>
+        <p class="small text-muted mb-1">Suspicious hits (last triage)</p>
+        <canvas id="memoryChart" height="140"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="card-title mb-3">Top Log Sources</h6>
+        {% if dashboard_data.logs.top_sources %}
+          <ul class="list-group list-group-flush small">
+            {% for src, count in dashboard_data.logs.top_sources %}
+              <li class="list-group-item d-flex justify-content-between">
+                <span><code>{{ src }}</code></span>
+                <span>{{ count }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-muted small mb-0">No log data yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="card-title mb-3">HTTP Status Distribution</h6>
+        {% if dashboard_data.logs.top_status %}
+          <ul class="list-group list-group-flush small">
+            {% for status, count in dashboard_data.logs.top_status %}
+              <li class="list-group-item d-flex justify-content-between">
+                <span><code>{{ status }}</code></span>
+                <span>{{ count }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-muted small mb-0">No HTTP status data yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const dashboardData = {{ dashboard_data | tojson }};
+
+  document.addEventListener("DOMContentLoaded", function () {
+    // Sigma presets autocomplete
+    const sigmaInput = document.querySelector("input[name='sigma_urls']");
+    document.querySelectorAll(".sigma-preset").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const urls = btn.getAttribute("data-urls");
+        if (sigmaInput && urls) {
+          sigmaInput.value = urls;
+          sigmaInput.focus();
+        }
+      });
+    });
+
+    // Logs chart
+    const logsCtx = document.getElementById("logsChart");
+    if (logsCtx && window.Chart) {
+      const totalLogs = dashboardData.logs.total || 0;
+      const anomaliesLogs = dashboardData.logs.anomalies || 0;
+      new Chart(logsCtx, {
+        type: "doughnut",
+        data: {
+          labels: ["Normal", "Anomalies"],
+          datasets: [{
+            data: [Math.max(totalLogs - anomaliesLogs, 0), anomaliesLogs]
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: "bottom" }
+          }
+        }
+      });
+    }
+
+    // Network chart
+    const netCtx = document.getElementById("networkChart");
+    if (netCtx && window.Chart) {
+      const flows = dashboardData.network.flows || 0;
+      const anomalies = dashboardData.network.anomalies || 0;
+      new Chart(netCtx, {
+        type: "doughnut",
+        data: {
+          labels: ["Normal", "Suspicious"],
+          datasets: [{
+            data: [Math.max(flows - anomalies, 0), anomalies]
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: "bottom" }
+          }
+        }
+      });
+    }
+
+    // Memory chart
+    const memCtx = document.getElementById("memoryChart");
+    if (memCtx && window.Chart) {
+      const suspicious = dashboardData.memory.suspicious || 0;
+      new Chart(memCtx, {
+        type: "bar",
+        data: {
+          labels: ["Suspicious hits"],
+          datasets: [{
+            data: [suspicious]
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            y: { beginAtZero: true, precision: 0 }
+          }
+        }
+      });
+    }
+  });
+</script>
+{% endblock %}

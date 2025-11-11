@@ -1,0 +1,15 @@
+title: Multiple Failed Logons on Windows Host
+id: a1b2c3d4-0007
+description: Detects potential password spraying or brute-force attempts
+status: experimental
+level: medium
+logsource:
+  product: windows
+  category: authentication
+detection:
+  selection:
+    message:
+      - "failed logon"
+      - "logon failure"
+      - "unknown user name or bad password"
+  condition: selection
