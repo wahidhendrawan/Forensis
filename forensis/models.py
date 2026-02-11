@@ -12,7 +12,7 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(50), nullable=False, default='analyst') # 'admin', 'analyst'
     group_id = db.Column(db.Integer, db.ForeignKey('group.id'), nullable=True)
     
-    # Menambahkan kolom MFA yang sebelumnya ada di konflik
+    # Kolom MFA (Multi-Factor Authentication)
     mfa_secret = db.Column(db.String(32), nullable=True)
     mfa_enabled = db.Column(db.Boolean, default=False)
 
@@ -43,5 +43,7 @@ class AnalysisHistory(db.Model):
             try:
                 return json.loads(self.results_json)
             except json.JSONDecodeError:
+                # Mengembalikan dictionary kosong jika JSON rusak, 
+                # mencegah aplikasi crash
                 return {}
         return None

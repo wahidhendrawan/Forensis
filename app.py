@@ -24,7 +24,6 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 
-# Pastikan modul-modul ini ada di struktur project Anda
 from forensis.models import db, User, Group, AnalysisHistory
 from forensis.analyzers.log_analyzer import analyze_logs
 from forensis.analyzers.network_analyzer import analyze_pcap
@@ -98,7 +97,7 @@ def login():
                     if not totp.verify(otp):
                         flash("Invalid authentication code.", "danger")
                         return render_template("login.html", otp_required=True, username=username, password=password)
-            
+
             # Login successful (Either MFA passed or MFA not enabled)
             login_user(user)
             flash("Logged in successfully.", "success")
@@ -167,6 +166,10 @@ def dashboard():
     network_count = AnalysisHistory.query.filter_by(type="network").count()
     memory_count = AnalysisHistory.query.filter(AnalysisHistory.type.like("memory%")).count()
 
+    # Simple anomaly counting (would be better with dedicated Anomaly table, but for now summing form AnalysisHistory JSON is expensive)
+    # Using Last Results for live view is okay, but user complained about "blank after input".
+    # Let's try to load the latest analysis of each type for detailed charts
+
     latest_log = AnalysisHistory.query.filter_by(type="logs").order_by(AnalysisHistory.timestamp.desc()).first()
     latest_net = AnalysisHistory.query.filter_by(type="network").order_by(AnalysisHistory.timestamp.desc()).first()
 
@@ -185,6 +188,7 @@ def dashboard():
             "anomalies": net_data.get("summary", {}).get("anomaly_count", 0),
         },
         "memory": {
+             # Memory is harder to aggregate without structured DB, just showing count of analyses
              "suspicious": memory_count # Placeholder
         },
         "counts": {
@@ -192,7 +196,7 @@ def dashboard():
             "network": network_count,
             "memory": memory_count
         },
-        "recent_alerts": [] 
+        "recent_alerts": [] # Populate below
     }
 
     # Fetch recent anomalies (from last few analyses)
@@ -330,6 +334,7 @@ def log_analyzer():
         filename = None
 
         if file and file.filename:
+            # allowed_file check is a bit generic, we might want to relax it for CSV/JSON or extend ALLOWED_LOG_EXT
             if not allowed_file(file.filename, ALLOWED_LOG_EXT):
                 flash("Unsupported log file extension.", "danger")
                 return redirect(request.url)
@@ -421,6 +426,7 @@ def memory_helper():
 
             if file and file.filename:
                  filename = secure_filename(file.filename)
+                 # Assuming text based output
                  path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
                  file.save(path)
                  with open(path, "r", errors="ignore") as f:
@@ -469,7 +475,7 @@ def view_history(id):
     elif "memory" in analysis.type:
          playbook = results if analysis.type == "memory_playbook" else None
          parsed_output = results if analysis.type == "memory_triage" else None
-         
+         # Fix format for template if needed
          if analysis.type == "memory_playbook":
              parsed_output = None
          elif analysis.type == "memory_triage":
