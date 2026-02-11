@@ -7,6 +7,7 @@ services:
     ports:
       - "5000:5000"
     environment:
+      FORENSIS_SECRET_KEY: "change-me-in-production"
       # Optional: configure external integrations
       # FORENSIS_ELASTIC_URL: "http://elasticsearch:9200"
       # FORENSIS_ELASTIC_INDEX: "forensis-events"
