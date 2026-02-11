@@ -9,7 +9,9 @@
         </div>
         <div>
              {% if not current_user.mfa_enabled %}
-             <a href="{{ url_for('setup_mfa') }}" class="btn btn-outline-warning btn-sm"><i class="fas fa-lock me-1"></i> Enable MFA</a>
+             <a href="{{ url_for('setup_mfa') }}" class="btn btn-outline-warning btn-sm shadow-sm"><i class="fas fa-lock me-1"></i> Enable MFA</a>
+             {% else %}
+             <span class="badge bg-success bg-opacity-10 text-success border border-success px-3 py-2"><i class="fas fa-shield-alt me-1"></i> MFA Protected</span>
              {% endif %}
         </div>
     </div>
@@ -22,7 +24,7 @@
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
                         <h6 class="card-subtitle text-muted mb-1">Total Log Events</h6>
-                        <h2 class="card-title mb-0 display-6">{{ dashboard_data.logs.total }}</h2>
+                        <h2 class="card-title mb-0 display-6">{{ dashboard_data.logs.total|default(0) }}</h2>
                     </div>
                     <div class="bg-primary bg-opacity-25 rounded-circle p-3">
                         <i class="fas fa-file-alt fa-2x text-primary"></i>
@@ -39,15 +41,17 @@
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
                         <h6 class="card-subtitle text-muted mb-1">Log Anomalies</h6>
-                        <h2 class="card-title mb-0 display-6 text-danger">{{ dashboard_data.logs.anomalies }}</h2>
+                        <h2 class="card-title mb-0 display-6 text-danger">{{ dashboard_data.logs.anomalies|default(0) }}</h2>
                     </div>
                     <div class="bg-danger bg-opacity-25 rounded-circle p-3">
                         <i class="fas fa-exclamation-triangle fa-2x text-danger"></i>
                     </div>
                 </div>
                  <div class="progress" style="height: 5px;">
-                    <div class="progress-bar bg-danger" role="progressbar" style="width: {{ (dashboard_data.logs.anomalies / (dashboard_data.logs.total or 1) * 100)|round }}%"></div>
+                    {% set anomaly_perc = (dashboard_data.logs.anomalies / (dashboard_data.logs.total or 1) * 100)|round %}
+                    <div class="progress-bar bg-danger" role="progressbar" style="width: {{ anomaly_perc }}%" aria-valuenow="{{ anomaly_perc }}" aria-valuemin="0" aria-valuemax="100"></div>
                 </div>
+                <p class="card-text small text-muted mt-2">{{ anomaly_perc }}% of total traffic</p>
             </div>
         </div>
     </div>
@@ -58,7 +62,7 @@
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
                         <h6 class="card-subtitle text-muted mb-1">Network Flows</h6>
-                        <h2 class="card-title mb-0 display-6">{{ dashboard_data.network.flows }}</h2>
+                        <h2 class="card-title mb-0 display-6 text-warning">{{ dashboard_data.network.flows|default(0) }}</h2>
                     </div>
                     <div class="bg-warning bg-opacity-25 rounded-circle p-3">
                         <i class="fas fa-network-wired fa-2x text-warning"></i>
@@ -74,13 +78,14 @@
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
-                        <h6 class="card-subtitle text-muted mb-1">Memory Analyses</h6>
+                        <h6 class="card-subtitle text-muted mb-1">Memory Triage</h6>
                         <h2 class="card-title mb-0 display-6 text-success">{{ dashboard_data.counts.memory }}</h2>
                     </div>
                     <div class="bg-success bg-opacity-25 rounded-circle p-3">
                         <i class="fas fa-memory fa-2x text-success"></i>
                     </div>
                 </div>
+                <p class="card-text small text-muted">Persistence & Malware focus</p>
             </div>
         </div>
     </div>
@@ -90,14 +95,14 @@
     <div class="col-md-6">
         <div class="card h-100 shadow-sm">
             <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Latest Logs: Status Distribution</h5>
+                <h5 class="mb-0 fw-bold"><i class="fas fa-chart-pie me-2 text-primary"></i>Status Distribution</h5>
             </div>
             <div class="card-body position-relative" style="height: 300px;">
                 {% if dashboard_data.logs.total > 0 %}
                 <canvas id="logsStatusChart"></canvas>
                 {% else %}
-                <div class="d-flex align-items-center justify-content-center h-100 text-muted">
-                    No log data available
+                <div class="d-flex align-items-center justify-content-center h-100 text-muted border border-dashed rounded">
+                    <span>No log data available for visualization</span>
                 </div>
                 {% endif %}
             </div>
@@ -107,14 +112,14 @@
     <div class="col-md-6">
         <div class="card h-100 shadow-sm">
             <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Latest Logs: Top Sources</h5>
+                <h5 class="mb-0 fw-bold"><i class="fas fa-chart-bar me-2 text-primary"></i>Top Attack Sources</h5>
             </div>
             <div class="card-body position-relative" style="height: 300px;">
                 {% if dashboard_data.logs.total > 0 %}
                 <canvas id="logsSourceChart"></canvas>
                 {% else %}
-                <div class="d-flex align-items-center justify-content-center h-100 text-muted">
-                    No log data available
+                <div class="d-flex align-items-center justify-content-center h-100 text-muted border border-dashed rounded">
+                    <span>No source data available</span>
                 </div>
                 {% endif %}
             </div>
@@ -126,7 +131,7 @@
     <div class="col-md-8">
         <div class="card h-100 shadow-sm">
             <div class="card-header bg-transparent border-0">
-                <h5 class="mb-0"><i class="fas fa-bell me-2"></i>Recent Anomalies & Alerts</h5>
+                <h5 class="mb-0 fw-bold"><i class="fas fa-bell me-2 text-danger"></i>Recent Anomalies & Alerts</h5>
             </div>
             <div class="card-body p-0">
                 {% if dashboard_data.recent_alerts %}
@@ -143,45 +148,49 @@
                             {% for alert in dashboard_data.recent_alerts %}
                             <tr>
                                 <td class="small text-muted" style="white-space:nowrap">{{ alert.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
-                                <td><span class="badge bg-secondary">{{ alert.type }}</span></td>
-                                <td class="text-truncate" style="max-width: 300px;">{{ alert.message }}</td>
+                                <td><span class="badge bg-secondary opacity-75">{{ alert.type }}</span></td>
+                                <td class="text-truncate" style="max-width: 300px;" title="{{ alert.message }}">{{ alert.message }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
                 {% else %}
-                <div class="p-4 text-center text-muted">
-                    <i class="fas fa-check-circle fa-2x mb-2 text-success"></i><br>
-                    No recent anomalies detected.
+                <div class="p-5 text-center text-muted">
+                    <i class="fas fa-check-circle fa-3x mb-3 text-success opacity-50"></i><br>
+                    <span class="fw-bold">System Clear</span><br>
+                    No recent anomalies detected in the database.
                 </div>
                 {% endif %}
             </div>
         </div>
     </div>
+
     <div class="col-md-4">
          <div class="card h-100 shadow-sm border-info">
             <div class="card-header bg-info bg-opacity-10 border-0">
-                <h5 class="mb-0 text-info"><i class="fas fa-sync me-2"></i>Sigma Rules</h5>
+                <h5 class="mb-0 text-info fw-bold"><i class="fas fa-sync me-2"></i>Sigma Engine</h5>
             </div>
             <div class="card-body">
-                <p class="small text-muted">Manage detection rules synchronization.</p>
+                <p class="small text-muted">Update detection rules from remote repositories.</p>
                 <form method="POST" action="{{ url_for('sigma_sync') }}" class="mb-3">
-                    <label class="form-label small fw-bold">Sync from URLs</label>
+                    <label class="form-label small fw-bold">Sync from URLs (CSV)</label>
                     <div class="input-group input-group-sm">
                         <input type="text" name="sigma_urls" class="form-control" placeholder="https://..." value="{{ request.form.get('sigma_urls', '') }}">
                         <button type="submit" class="btn btn-info text-white"><i class="fas fa-cloud-download-alt"></i></button>
                     </div>
                 </form>
-                <div class="d-grid">
+                <hr class="my-3 opacity-50">
+                <div class="d-grid gap-2">
                      <form method="POST" action="{{ url_for('sigma_refresh') }}">
-                         <button type="submit" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-redo me-1"></i> Reload Local Rules</button>
+                         <button type="submit" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-redo me-1"></i> Reload Local YAMLs</button>
                     </form>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
@@ -198,7 +207,8 @@
                 labels: statusLabels,
                 datasets: [{
                     data: statusCounts,
-                    backgroundColor: ['#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6c757d'],
+                    backgroundColor: ['#198754', '#dc3545', '#ffc107', '#0dcaf0', '#6c757d'],
+                    hoverOffset: 4,
                     borderWidth: 0
                 }]
             },
@@ -206,7 +216,7 @@
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { position: 'right', labels: { color: '#adb5bd' } }
+                    legend: { position: 'right', labels: { color: '#adb5bd', usePointStyle: true } }
                 }
             }
         });
