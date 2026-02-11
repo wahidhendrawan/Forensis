@@ -1,4 +1,7 @@
 import re
+import csv
+import json
+import io
 from collections import Counter, defaultdict
 from datetime import datetime
 
@@ -49,40 +52,120 @@ def _parse_generic(line: str):
         "message": line.strip(),
     }
 
+def _parse_csv(text: str):
+    events = []
+    try:
+        # Use StringIO to parse the text as file-like object
+        f = io.StringIO(text)
+        # Sniff delimiter
+        dialect = csv.Sniffer().sniff(text[:1024])
+        reader = csv.DictReader(f, dialect=dialect)
+        for row in reader:
+            evt = dict(row)
+            evt["source"] = "csv"
+            evt["raw"] = json.dumps(row)
+            # Try to find standard fields
+            evt["message"] = evt.get("message") or evt.get("msg") or evt.get("event") or str(row)
+            events.append(evt)
+    except Exception:
+        # Fallback if CSV parsing fails
+        pass
+    return events
+
+def _parse_json_lines(text: str, source_type="json"):
+    events = []
+    for line in text.splitlines():
+        if not line.strip(): continue
+        try:
+            data = json.loads(line)
+            if isinstance(data, dict):
+                 data["source"] = source_type
+                 data["raw"] = line
+                 # Normalize common fields for Elastic/Splunk
+                 if source_type in ["elastic", "splunk"]:
+                     data["message"] = data.get("message") or data.get("_raw") or data.get("event") or str(data)
+                     data["timestamp"] = data.get("@timestamp") or data.get("timestamp") or data.get("_time")
+
+                 events.append(data)
+        except json.JSONDecodeError:
+            continue
+    return events
+
 def analyze_logs(text: str, log_type: str = "generic"):
-    lines = [l for l in text.splitlines() if l.strip()]
     events = []
     anomalies = []
     counters = defaultdict(Counter)
 
-    for line in lines:
-        if log_type == "apache":
-            evt = _parse_apache(line)
-        elif log_type == "syslog":
-            evt = _parse_syslog(line)
-        else:
-            evt = _parse_generic(line)
+    # Pre-processing for structured types
+    if log_type == "csv":
+        events = _parse_csv(text)
+        if not events: # If CSV parsing failed, treat as generic lines
+             lines = [l for l in text.splitlines() if l.strip()]
+             for line in lines:
+                 events.append(_parse_generic(line))
+    elif log_type in ["elastic", "splunk"]:
+        # Try JSON lines first
+        events = _parse_json_lines(text, source_type=log_type)
+        if not events:
+            # Maybe it's a huge JSON array?
+            try:
+                data = json.loads(text)
+                if isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, dict):
+                            item["source"] = log_type
+                            item["raw"] = json.dumps(item)
+                            item["message"] = item.get("message") or item.get("_raw") or str(item)
+                            events.append(item)
+                elif isinstance(data, dict):
+                     # Single event?
+                     data["source"] = log_type
+                     data["raw"] = json.dumps(data)
+                     data["message"] = data.get("message") or data.get("_raw") or str(data)
+                     events.append(data)
+            except json.JSONDecodeError:
+                 # Fallback to generic
+                 pass
 
-        if not evt:
-            continue
+        if not events and log_type == "splunk":
+             # Splunk might be CSV export
+             events = _parse_csv(text)
 
-        events.append(evt)
+    else:
+        # Line based parsing
+        lines = [l for l in text.splitlines() if l.strip()]
+        for line in lines:
+            evt = None
+            if log_type == "apache":
+                evt = _parse_apache(line)
+            elif log_type == "syslog":
+                evt = _parse_syslog(line)
 
-        src = evt.get("ip") or evt.get("host") or "unknown"
+            if not evt:
+                evt = _parse_generic(line)
+
+            if evt:
+                events.append(evt)
+
+    # Post-processing events for stats and anomalies
+    for evt in events:
+        src = evt.get("ip") or evt.get("host") or evt.get("src_ip") or "unknown"
         counters["by_source"][src] += 1
 
-        if "status" in evt:
-            status = evt["status"]
+        # Safe access to status
+        status = evt.get("status")
+        if status:
             counters["by_status"][status] += 1
-            if status >= 400:
-                anomalies.append(
-                    {
+            try:
+                if int(status) >= 400:
+                    anomalies.append({
                         "reason": f"HTTP {status} from {src}",
                         "event": evt,
-                    }
-                )
+                    })
+            except (ValueError, TypeError):
+                pass
 
-        msg = evt.get("message", evt.get("raw", "")).lower()
+        msg = str(evt.get("message", evt.get("raw", ""))).lower()
         suspicious_keywords = [
             "failed password",
             "authentication failure",
@@ -106,7 +189,7 @@ def analyze_logs(text: str, log_type: str = "generic"):
     top_status = counters["by_status"].most_common(10)
 
     summary = {
-        "total_lines": len(lines),
+        "total_lines": len(text.splitlines()),
         "parsed_events": len(events),
         "top_sources": top_sources,
         "top_status": top_status,
