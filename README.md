@@ -1,6 +1,14 @@
+Here’s the cleaned‑up, conflict‑free README — it merges both versions, removes all markers, and keeps all essential information:
+
+---
+
 # Forensis - Forensics & Analysis
 
-**Forensis** is a modern, enterprise-ready web platform designed for **forensics and threat analysis workflows**. It combines advanced log parsing, network traffic analysis, memory forensics triage, and Sigma rule correlation into a unified, secure dashboard.
+**Forensis** is a modern, enterprise‑ready web platform designed for **forensics and threat analysis workflows**. It combines advanced log parsing, network traffic analysis, memory forensics triage, and Sigma rule correlation into a unified, secure dashboard.
+
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
+[![Flask](https://img.shields.io/badge/flask-2.3+-lightgrey)](https://flask.palletsprojects.com/)
+[![License](https://img.shields.io/badge/license-Free%20use-green)](#license)
 
 ---
 
@@ -10,15 +18,15 @@
 Parse and analyze diverse log formats with heuristic anomaly detection and automated Sigma rule correlation.
 
 - **Supported Formats:**
-  - **Apache / Web Server Logs**
-  - **Syslog**
-  - **CSV Files** (generic or custom exports)
-  - **Elastic Stack** (JSON exports)
-  - **Splunk** (JSON/CSV exports)
+  - Apache / Web Server Logs
+  - Syslog
+  - CSV Files (generic or custom exports)
+  - Elastic Stack (JSON exports)
+  - Splunk (JSON/CSV exports)
 - **Detection:**
   - HTTP status anomalies (4xx/5xx spikes)
   - Suspicious keywords (`failed password`, `mimikatz`, `sql injection`, etc.)
-  - Real-time Sigma rule matching
+  - Real‑time Sigma rule matching
 
 ### 2. Network Traffic Analyzer
 Analyze **PCAP / PCAPNG** files to identify suspicious flows and beaconing behavior.
@@ -54,7 +62,7 @@ Never lose your work. All analysis results are stored securely.
 - **Admin Tools:** Granularly delete history records or perform a full system reset.
 
 ### 6. Sigma Correlation Engine
-Lightweight YAML-based engine for detecting threats across all modules.
+Lightweight YAML‑based engine for detecting threats across all modules.
 
 - **Predefined Rules:** Ships with rules for Web Shells, PowerShell abuse, Mimikatz, and Network Beaconing.
 - **Live Sync:** Update rules dynamically from remote Git repositories (e.g., SigmaHQ).
@@ -66,15 +74,17 @@ Lightweight YAML-based engine for detecting threats across all modules.
 
 ### Prerequisites
 - **Python 3.10+**
-- **Docker & Docker Compose** (Recommended)
+- **Docker & Docker Compose** (recommended for production)
 
-### 🐳 Docker Deployment (Fastest)
+---
 
-Forensis is pre-configured with Docker Compose for a production-ready setup including persistent storage.
+### 🐳 Docker Deployment (Recommended)
+
+Forensis is pre‑configured with Docker Compose for a production‑ready setup including persistent storage.
 
 1. **Configure Environment:**
    ```bash
-   cp .env.example .env  # (Or create one based on documentation)
+   cp .env.example .env
    # Edit .env to set your FORENSIS_SECRET_KEY and Admin credentials
    ```
 
@@ -85,49 +95,73 @@ Forensis is pre-configured with Docker Compose for a production-ready setup incl
 
 3. **Access:**
    Open **http://localhost:5000**
-   - **Default Admin:** `admin` / `forensis123` (Change immediately!)
 
-### 🧰 Local Installation
-
-1. **Clone and Install:**
-   ```bash
-   git clone https://github.com/<username>/Forensis.git
-   cd Forensis
-   python -m venv venv
-   source venv/bin/activate  # Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-
-2. **Run:**
-   ```bash
-   python app.py
-   ```
-   *The database will be automatically initialized on the first run.*
+   > **Default admin credentials:**  
+   > **Username:** `admin`  
+   > **Password:** `forensis123`  
+   > ⚠️ **Change immediately after first login!**
 
 ---
 
-## 📂 Project Structure
+### 🧰 Manual Installation
 
-```text
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/wahidhendrawan/Forensis.git
+   cd Forensis
+   ```
+
+2. **Create and activate a virtual environment:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate      # Linux / macOS
+   venv\Scripts\activate         # Windows
+   ```
+
+3. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Run the application:**
+   ```bash
+   python app.py
+   ```
+   The SQLite database is automatically initialized on first run.
+
+5. **Access:**
+   Open **http://127.0.0.1:5000**
+
+---
+
+## 📁 Project Structure
+
+```plaintext
 Forensis/
-├── app.py                  # Main application logic & routes
+├── app.py                      # Main application logic & routes
 ├── forensis/
-│   ├── models.py           # Database models (User, History, Group)
-│   ├── analyzers/          # Analysis engines (Log, Network, Memory, Sigma)
-│   └── integrations/       # External exports (ELK, Loki)
-├── sigma_rules/            # YAML detection rules
+│   ├── models.py               # Database models (User, History, Group)
+│   ├── analyzers/              # Analysis engines
+│   │   ├── log_analyzer.py
+│   │   ├── network_analyzer.py
+│   │   ├── memory_analyzer.py
+│   │   └── sigma_analyzer.py
+│   └── integrations/           # External exports
+│       ├── elk_exporter.py
+│       └── loki_exporter.py
+├── sigma_rules/                # YAML detection rules
 │   ├── web_error_spike.yml
 │   ├── susp_powershell.yml
 │   └── ...
-├── templates/              # HTML Templates (Bootstrap 5)
+├── templates/                  # HTML templates (Bootstrap 5)
 │   ├── dashboard.html
 │   ├── manage_users.html
 │   ├── setup_mfa.html
 │   └── ...
 ├── static/
-│   ├── styles.css          # Dark/Light theme styles
-│   └── main.js             # UI interactions
-├── instance/               # SQLite database storage
+│   ├── styles.css              # Dark/Light theme styles
+│   └── main.js                 # UI interactions
+├── instance/                   # SQLite database storage
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt
@@ -137,24 +171,46 @@ Forensis/
 
 ## 🔐 Security Features
 
-- **Authentication:** Database-backed auth using `Flask-Login` and `Bcrypt` hashing.
-- **MFA:** Time-based One-Time Password (TOTP) support using `pyotp`.
-- **Session Management:** Secure session handling with administrative timeouts.
-- **Input Validation:** Strict file type validation and secure filename handling.
+- **Authentication** – Database‑backed with Flask‑Login and Bcrypt password hashing.  
+- **Multi‑Factor Authentication (MFA)** – TOTP support using `pyotp`.  
+- **Session Management** – Secure cookies with administrative timeouts.  
+- **Input Validation** – Strict file type validation and secure filename handling.
 
 ---
 
 ## 🎨 Customization
 
-- **Themes:** Toggle between **Light** and **Dark** modes instantly via the navbar.
-- **Configuration:** Manage settings via `.env`:
-  - `FORENSIS_SECRET_KEY`
-  - `FORENSIS_ADMIN_USER` / `PASSWORD`
-  - `FORENSIS_SIGMA_URLS`
+### 🌓 Theme Toggle
+Switch between **Light** and **Dark** modes instantly via the navigation bar.
+
+### ⚙️ Configuration via `.env`
+Create a `.env` file in the root directory to override defaults:
+
+```env
+FORENSIS_SECRET_KEY=your_secret_key
+FORENSIS_ADMIN_USER=custom_admin
+FORENSIS_ADMIN_PASSWORD=strong_password
+FORENSIS_SIGMA_URLS=https://custom.sigma.repo/rules.zip
+```
 
 ---
 
-## 🪶 License
+## 🪪 License
 
-Free to use and modify for **research, learning, or internal lab environments**.  
+**Free to use and modify** for research, learning, or internal lab environments.  
 No warranty is provided — use responsibly.
+
+---
+
+## 🤝 Contributing
+
+Contributions, issues, and feature requests are welcome!  
+Feel free to open an issue or submit a pull request.
+
+---
+
+## 📌 Acknowledgements
+
+- [Sigma](https://github.com/SigmaHQ/sigma) – Generic signature format for SIEM systems  
+- [Flask](https://flask.palletsprojects.com/) – Web framework  
+- [Bootstrap 5](https://getbootstrap.com/) – UI components
