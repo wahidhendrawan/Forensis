@@ -3,6 +3,9 @@ import io
 import csv
 import json
 import zipfile
+import base64
+import pyotp
+import qrcode
 from datetime import datetime
 from functools import wraps
 
@@ -21,6 +24,7 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 
+# Pastikan modul-modul ini ada di struktur project Anda
 from forensis.models import db, User, Group, AnalysisHistory
 from forensis.analyzers.log_analyzer import analyze_logs
 from forensis.analyzers.network_analyzer import analyze_pcap
@@ -79,9 +83,23 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "").strip()
+        otp = request.form.get("otp", "").strip()
 
         user = User.query.filter_by(username=username).first()
         if user and bcrypt.check_password_hash(user.password_hash, password):
+            # MFA Verification Logic
+            if user.mfa_enabled:
+                if not otp:
+                     # Second step: Prompt for OTP if not provided
+                     return render_template("login.html", otp_required=True, username=username, password=password)
+                else:
+                    # Verify OTP
+                    totp = pyotp.TOTP(user.mfa_secret)
+                    if not totp.verify(otp):
+                        flash("Invalid authentication code.", "danger")
+                        return render_template("login.html", otp_required=True, username=username, password=password)
+            
+            # Login successful (Either MFA passed or MFA not enabled)
             login_user(user)
             flash("Logged in successfully.", "success")
             return redirect(request.args.get("next") or url_for("dashboard"))
@@ -89,7 +107,7 @@ def login():
             flash("Invalid credentials.", "danger")
             return redirect(url_for("login"))
 
-    return render_template("login.html")
+    return render_template("login.html", otp_required=False)
 
 
 @app.route("/logout")
@@ -98,6 +116,42 @@ def logout():
     logout_user()
     flash("You have been logged out.", "info")
     return redirect(url_for("login"))
+
+@app.route("/setup_mfa", methods=["GET", "POST"])
+@login_required
+def setup_mfa():
+    if current_user.mfa_enabled:
+        flash("MFA is already enabled.", "info")
+        return redirect(url_for("dashboard"))
+
+    if request.method == "POST":
+        secret = request.form.get("secret")
+        otp = request.form.get("otp")
+
+        totp = pyotp.TOTP(secret)
+        if totp.verify(otp):
+            current_user.mfa_secret = secret
+            current_user.mfa_enabled = True
+            db.session.commit()
+            flash("MFA enabled successfully.", "success")
+            return redirect(url_for("dashboard"))
+        else:
+            flash("Invalid verification code. Please try again.", "danger")
+            # Note: In a real app, you'd need to re-pass the QR code/secret to the template
+            # or handle state better, but keeping it simple as per original code.
+            return render_template("setup_mfa.html", secret=secret, qr_code=request.form.get("qr_code_hidden"))
+
+    # Generate secret and QR
+    secret = pyotp.random_base32()
+    totp = pyotp.TOTP(secret)
+    uri = totp.provisioning_uri(name=current_user.username, issuer_name="Forensis")
+
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf)
+    qr_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    return render_template("setup_mfa.html", secret=secret, qr_code=qr_b64)
 
 
 @app.route("/")
@@ -108,29 +162,52 @@ def index():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    # Interactive dashboard aggregating latest analysis results for charts.
-    logs = LAST_RESULTS.get("logs") or {}
-    network = LAST_RESULTS.get("network") or {}
-    memory = LAST_RESULTS.get("memory") or {}
+    # Fetch real stats from DB for persistent dashboard
+    logs_count = AnalysisHistory.query.filter_by(type="logs").count()
+    network_count = AnalysisHistory.query.filter_by(type="network").count()
+    memory_count = AnalysisHistory.query.filter(AnalysisHistory.type.like("memory%")).count()
+
+    latest_log = AnalysisHistory.query.filter_by(type="logs").order_by(AnalysisHistory.timestamp.desc()).first()
+    latest_net = AnalysisHistory.query.filter_by(type="network").order_by(AnalysisHistory.timestamp.desc()).first()
+
+    log_data = latest_log.get_results() if latest_log else {}
+    net_data = latest_net.get_results() if latest_net else {}
 
     dashboard_data = {
         "logs": {
-            "total": logs.get("summary", {}).get("parsed_events", 0),
-            "anomalies": logs.get("summary", {}).get("anomaly_count", 0),
-            "top_sources": logs.get("summary", {}).get("top_sources", []),
-            "top_status": logs.get("summary", {}).get("top_status", []),
+            "total": log_data.get("summary", {}).get("parsed_events", 0),
+            "anomalies": log_data.get("summary", {}).get("anomaly_count", 0),
+            "top_sources": log_data.get("summary", {}).get("top_sources", []),
+            "top_status": log_data.get("summary", {}).get("top_status", []),
         },
         "network": {
-            "flows": network.get("summary", {}).get("flow_count", 0),
-            "anomalies": network.get("summary", {}).get("anomaly_count", 0),
+            "flows": net_data.get("summary", {}).get("flow_count", 0),
+            "anomalies": net_data.get("summary", {}).get("anomaly_count", 0),
         },
         "memory": {
-            "mode": memory.get("mode"),
-            "suspicious": (memory.get("summary") or {}).get("suspicious_hits", 0)
-            if memory.get("mode") == "triage"
-            else None,
+             "suspicious": memory_count # Placeholder
         },
+        "counts": {
+            "logs": logs_count,
+            "network": network_count,
+            "memory": memory_count
+        },
+        "recent_alerts": [] 
     }
+
+    # Fetch recent anomalies (from last few analyses)
+    recent_analyses = AnalysisHistory.query.order_by(AnalysisHistory.timestamp.desc()).limit(5).all()
+    alerts = []
+    for a in recent_analyses:
+        res = a.get_results()
+        if res and res.get("anomalies"):
+             for anomaly in res["anomalies"][:2]: # limit 2 per analysis
+                 alerts.append({
+                     "timestamp": a.timestamp,
+                     "type": a.type,
+                     "message": anomaly.get("reason", "Unknown anomaly")
+                 })
+    dashboard_data["recent_alerts"] = alerts
 
     return render_template("dashboard.html", dashboard_data=dashboard_data)
 
@@ -185,6 +262,22 @@ def add_group():
         flash(f"Group {name} added.", "success")
     return redirect(url_for('manage_users'))
 
+@app.route("/manage_groups/delete/<int:group_id>")
+@login_required
+@admin_required
+def delete_group(group_id):
+    group = Group.query.get_or_404(group_id)
+    # Check if group has users or is default admin group
+    if group.name == 'Administrators':
+         flash("Cannot delete Administrators group.", "danger")
+    elif group.users:
+         flash("Cannot delete group with assigned users.", "warning")
+    else:
+        db.session.delete(group)
+        db.session.commit()
+        flash(f"Group {group.name} deleted.", "success")
+    return redirect(url_for('manage_users'))
+
 
 @app.route("/sigma/refresh", methods=["POST"])
 @login_required
@@ -237,7 +330,6 @@ def log_analyzer():
         filename = None
 
         if file and file.filename:
-            # allowed_file check is a bit generic, we might want to relax it for CSV/JSON or extend ALLOWED_LOG_EXT
             if not allowed_file(file.filename, ALLOWED_LOG_EXT):
                 flash("Unsupported log file extension.", "danger")
                 return redirect(request.url)
@@ -255,7 +347,6 @@ def log_analyzer():
         events = results.get("events", [])
         sigma_matches = sigma_engine.correlate_events(events)
 
-        # Store last results for export/dashboard and push to ELK/Loki
         LAST_RESULTS["logs"] = results
         ship_events(events, "logs")
         save_history("logs", results, filename)
@@ -330,7 +421,6 @@ def memory_helper():
 
             if file and file.filename:
                  filename = secure_filename(file.filename)
-                 # Assuming text based output
                  path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
                  file.save(path)
                  with open(path, "r", errors="ignore") as f:
@@ -379,7 +469,7 @@ def view_history(id):
     elif "memory" in analysis.type:
          playbook = results if analysis.type == "memory_playbook" else None
          parsed_output = results if analysis.type == "memory_triage" else None
-         # Fix format for template if needed
+         
          if analysis.type == "memory_playbook":
              parsed_output = None
          elif analysis.type == "memory_triage":
@@ -388,6 +478,19 @@ def view_history(id):
          return render_template("memory_helper.html", playbook=playbook, parsed_output=parsed_output, sigma_matches=sigma_engine.correlate_events(results.get("events", [])), historical=True)
 
     flash("Unknown analysis type", "danger")
+    return redirect(url_for('history'))
+
+@app.route("/history/delete/<int:id>")
+@login_required
+def delete_history(id):
+    analysis = AnalysisHistory.query.get_or_404(id)
+    # Allow admin or the owner to delete
+    if current_user.role == 'admin' or analysis.user_id == current_user.id:
+        db.session.delete(analysis)
+        db.session.commit()
+        flash("Analysis record deleted.", "success")
+    else:
+        flash("Permission denied.", "danger")
     return redirect(url_for('history'))
 
 @app.route("/reset_data")
