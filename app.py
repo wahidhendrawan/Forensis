@@ -273,9 +273,9 @@ def delete_group(group_id):
     group = Group.query.get_or_404(group_id)
     # Check if group has users or is default admin group
     if group.name == 'Administrators':
-         flash("Cannot delete Administrators group.", "danger")
+          flash("Cannot delete Administrators group.", "danger")
     elif group.users:
-         flash("Cannot delete group with assigned users.", "warning")
+          flash("Cannot delete group with assigned users.", "warning")
     else:
         db.session.delete(group)
         db.session.commit()

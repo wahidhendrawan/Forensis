@@ -1,6 +1,10 @@
+Here’s the cleaned‑up, conflict‑free README — it merges both versions, removes all markers, and keeps all essential information:
+
+---
+
 # Forensis - Forensics & Analysis
 
-**Forensis** is a modern, enterprise-ready web platform designed for **forensics and threat analysis workflows**. It combines advanced log parsing, network traffic analysis, memory forensics triage, and Sigma rule correlation into a unified, secure dashboard.
+**Forensis** is a modern, enterprise‑ready web platform designed for **forensics and threat analysis workflows**. It combines advanced log parsing, network traffic analysis, memory forensics triage, and Sigma rule correlation into a unified, secure dashboard.
 
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
 [![Flask](https://img.shields.io/badge/flask-2.3+-lightgrey)](https://flask.palletsprojects.com/)
@@ -14,15 +18,15 @@
 Parse and analyze diverse log formats with heuristic anomaly detection and automated Sigma rule correlation.
 
 - **Supported Formats:**
-  - **Apache / Web Server Logs**
-  - **Syslog**
-  - **CSV Files** (generic or custom exports)
-  - **Elastic Stack** (JSON exports)
-  - **Splunk** (JSON/CSV exports)
+  - Apache / Web Server Logs
+  - Syslog
+  - CSV Files (generic or custom exports)
+  - Elastic Stack (JSON exports)
+  - Splunk (JSON/CSV exports)
 - **Detection:**
   - HTTP status anomalies (4xx/5xx spikes)
   - Suspicious keywords (`failed password`, `mimikatz`, `sql injection`, etc.)
-  - Real-time Sigma rule matching
+  - Real‑time Sigma rule matching
 
 ### 2. Network Traffic Analyzer
 Analyze **PCAP / PCAPNG** files to identify suspicious flows and beaconing behavior.
@@ -58,7 +62,7 @@ Never lose your work. All analysis results are stored securely.
 - **Admin Tools:** Granularly delete history records or perform a full system reset.
 
 ### 6. Sigma Correlation Engine
-Lightweight YAML-based engine for detecting threats across all modules.
+Lightweight YAML‑based engine for detecting threats across all modules.
 
 - **Predefined Rules:** Ships with rules for Web Shells, PowerShell abuse, Mimikatz, and Network Beaconing.
 - **Live Sync:** Update rules dynamically from remote Git repositories (e.g., SigmaHQ).
@@ -70,61 +74,62 @@ Lightweight YAML-based engine for detecting threats across all modules.
 
 ### Prerequisites
 - **Python 3.10+**
-- **Docker & Docker Compose** (Recommended for production)
+- **Docker & Docker Compose** (recommended for production)
+
+---
 
 ### 🐳 Docker Deployment (Recommended)
 
-Forensis is pre-configured with Docker Compose for a production-ready setup including persistent storage.
+Forensis is pre‑configured with Docker Compose for a production‑ready setup including persistent storage.
 
 1. **Configure Environment:**
    ```bash
-   cp .env.example .env  # (Or create one based on documentation)
+   cp .env.example .env
    # Edit .env to set your FORENSIS_SECRET_KEY and Admin credentials
+   ```
+
+2. **Build and Run:**
+   ```bash
+   docker-compose up -d --build
+   ```
+
+3. **Access:**
+   Open **http://localhost:5000**
+
+   > **Default admin credentials:**  
+   > **Username:** `admin`  
+   > **Password:** `forensis123`  
+   > ⚠️ **Change immediately after first login!**
 
 ---
 
-## 🚀 Quick Start (Docker)
+### 🧰 Manual Installation
 
-```bash
-docker-compose up -d --build
-```
-
-Access the web interface at **http://localhost:5000**
-
-> **Default admin credentials:**  
-> **Username:** `admin`  
-> **Password:** `forensis123`  
-> ⚠️ **Change immediately after first login!**
-
----
-
-## 📦 Manual Installation
-
-1. **Clone the repository**  
+1. **Clone the repository:**
    ```bash
    git clone https://github.com/wahidhendrawan/Forensis.git
    cd Forensis
    ```
 
-2. **Create and activate virtual environment**  
+2. **Create and activate a virtual environment:**
    ```bash
    python -m venv venv
    source venv/bin/activate      # Linux / macOS
    venv\Scripts\activate         # Windows
    ```
 
-3. **Install dependencies**  
+3. **Install dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Run the application**  
+4. **Run the application:**
    ```bash
    python app.py
    ```
    The SQLite database is automatically initialized on first run.
 
-5. **Access**  
+5. **Access:**
    Open **http://127.0.0.1:5000**
 
 ---
@@ -155,7 +160,7 @@ Forensis/
 │   └── ...
 ├── static/
 │   ├── styles.css              # Dark/Light theme styles
-│   └── main.js                # UI interactions
+│   └── main.js                 # UI interactions
 ├── instance/                   # SQLite database storage
 ├── Dockerfile
 ├── docker-compose.yml
