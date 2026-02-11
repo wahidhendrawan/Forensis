@@ -1,0 +1,17 @@
+title: Web Server Error Spike
+id: web_error_spike
+status: experimental
+description: Detects a high volume of 4xx/5xx errors from a single source
+author: Forensis
+date: 2023/10/01
+logsource:
+    category: web_server
+    product: apache
+detection:
+    selection:
+        status:
+            - '404'
+            - '500'
+            - '403'
+    condition: selection
+level: medium

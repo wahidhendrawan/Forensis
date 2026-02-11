@@ -2,9 +2,16 @@
 
 {% block content %}
 <div class="row mb-4">
-    <div class="col-12">
-        <h1 class="display-5 fw-bold"><i class="fas fa-tachometer-alt text-primary"></i> Dashboard</h1>
-        <p class="text-muted">Threat Intelligence & Analysis Overview</p>
+    <div class="col-12 d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="display-5 fw-bold"><i class="fas fa-tachometer-alt text-primary"></i> Dashboard</h1>
+            <p class="text-muted mb-0">Threat Intelligence & Analysis Overview</p>
+        </div>
+        <div>
+             {% if not current_user.mfa_enabled %}
+             <a href="{{ url_for('setup_mfa') }}" class="btn btn-outline-warning btn-sm"><i class="fas fa-lock me-1"></i> Enable MFA</a>
+             {% endif %}
+        </div>
     </div>
 </div>
 
@@ -21,9 +28,7 @@
                         <i class="fas fa-file-alt fa-2x text-primary"></i>
                     </div>
                 </div>
-                <div class="progress" style="height: 5px;">
-                    <div class="progress-bar bg-primary" role="progressbar" style="width: 100%"></div>
-                </div>
+                 <p class="card-text small text-muted"><i class="fas fa-history me-1"></i> {{ dashboard_data.counts.logs }} analyses run</p>
             </div>
         </div>
     </div>
@@ -59,9 +64,7 @@
                         <i class="fas fa-network-wired fa-2x text-warning"></i>
                     </div>
                 </div>
-                <div class="progress" style="height: 5px;">
-                    <div class="progress-bar bg-warning" role="progressbar" style="width: 100%"></div>
-                </div>
+                 <p class="card-text small text-muted"><i class="fas fa-history me-1"></i> {{ dashboard_data.counts.network }} analyses run</p>
             </div>
         </div>
     </div>
@@ -71,15 +74,12 @@
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
-                        <h6 class="card-subtitle text-muted mb-1">Memory Suspicious Hits</h6>
-                        <h2 class="card-title mb-0 display-6 text-success">{{ dashboard_data.memory.suspicious if dashboard_data.memory.suspicious is not none else '-' }}</h2>
+                        <h6 class="card-subtitle text-muted mb-1">Memory Analyses</h6>
+                        <h2 class="card-title mb-0 display-6 text-success">{{ dashboard_data.counts.memory }}</h2>
                     </div>
                     <div class="bg-success bg-opacity-25 rounded-circle p-3">
                         <i class="fas fa-memory fa-2x text-success"></i>
                     </div>
-                </div>
-                 <div class="progress" style="height: 5px;">
-                    <div class="progress-bar bg-success" role="progressbar" style="width: 100%"></div>
                 </div>
             </div>
         </div>
@@ -90,10 +90,16 @@
     <div class="col-md-6">
         <div class="card h-100 shadow-sm">
             <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Logs Status Distribution</h5>
+                <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Latest Logs: Status Distribution</h5>
             </div>
             <div class="card-body position-relative" style="height: 300px;">
+                {% if dashboard_data.logs.total > 0 %}
                 <canvas id="logsStatusChart"></canvas>
+                {% else %}
+                <div class="d-flex align-items-center justify-content-center h-100 text-muted">
+                    No log data available
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -101,37 +107,76 @@
     <div class="col-md-6">
         <div class="card h-100 shadow-sm">
             <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Top Log Sources</h5>
+                <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Latest Logs: Top Sources</h5>
             </div>
             <div class="card-body position-relative" style="height: 300px;">
+                {% if dashboard_data.logs.total > 0 %}
                 <canvas id="logsSourceChart"></canvas>
+                {% else %}
+                <div class="d-flex align-items-center justify-content-center h-100 text-muted">
+                    No log data available
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
 </div>
 
-<div class="row mb-4">
-    <div class="col-md-12">
-        <div class="card shadow-sm border-info">
+<div class="row g-4 mb-4">
+    <div class="col-md-8">
+        <div class="card h-100 shadow-sm">
+            <div class="card-header bg-transparent border-0">
+                <h5 class="mb-0"><i class="fas fa-bell me-2"></i>Recent Anomalies & Alerts</h5>
+            </div>
+            <div class="card-body p-0">
+                {% if dashboard_data.recent_alerts %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Type</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for alert in dashboard_data.recent_alerts %}
+                            <tr>
+                                <td class="small text-muted" style="white-space:nowrap">{{ alert.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td><span class="badge bg-secondary">{{ alert.type }}</span></td>
+                                <td class="text-truncate" style="max-width: 300px;">{{ alert.message }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="p-4 text-center text-muted">
+                    <i class="fas fa-check-circle fa-2x mb-2 text-success"></i><br>
+                    No recent anomalies detected.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+         <div class="card h-100 shadow-sm border-info">
             <div class="card-header bg-info bg-opacity-10 border-0">
-                <h5 class="mb-0 text-info"><i class="fas fa-sync me-2"></i>Sigma Rules Management</h5>
+                <h5 class="mb-0 text-info"><i class="fas fa-sync me-2"></i>Sigma Rules</h5>
             </div>
             <div class="card-body">
-                <div class="row g-3 align-items-end">
-                    <div class="col-md-6">
-                        <form method="POST" action="{{ url_for('sigma_sync') }}">
-                            <label class="form-label text-muted">Sync Rules from Remote URLs (comma-separated)</label>
-                            <div class="input-group">
-                                <input type="text" name="sigma_urls" class="form-control" placeholder="https://raw.githubusercontent.com/SigmaHQ/..." value="{{ request.form.get('sigma_urls', '') }}">
-                                <button type="submit" class="btn btn-info"><i class="fas fa-cloud-download-alt me-1"></i> Sync</button>
-                            </div>
-                        </form>
+                <p class="small text-muted">Manage detection rules synchronization.</p>
+                <form method="POST" action="{{ url_for('sigma_sync') }}" class="mb-3">
+                    <label class="form-label small fw-bold">Sync from URLs</label>
+                    <div class="input-group input-group-sm">
+                        <input type="text" name="sigma_urls" class="form-control" placeholder="https://..." value="{{ request.form.get('sigma_urls', '') }}">
+                        <button type="submit" class="btn btn-info text-white"><i class="fas fa-cloud-download-alt"></i></button>
                     </div>
-                    <div class="col-md-6 text-end">
-                        <form method="POST" action="{{ url_for('sigma_refresh') }}">
-                             <button type="submit" class="btn btn-outline-light"><i class="fas fa-redo me-1"></i> Reload Rules (Local)</button>
-                        </form>
-                    </div>
+                </form>
+                <div class="d-grid">
+                     <form method="POST" action="{{ url_for('sigma_refresh') }}">
+                         <button type="submit" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-redo me-1"></i> Reload Local Rules</button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -140,6 +185,7 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
+        {% if dashboard_data.logs.total > 0 %}
         // Logs Status Doughnut
         var ctxStatus = document.getElementById('logsStatusChart').getContext('2d');
         var statusData = {{ dashboard_data.logs.top_status | tojson }};
@@ -194,6 +240,7 @@
                 }
             }
         });
+        {% endif %}
     });
 </script>
 {% endblock %}

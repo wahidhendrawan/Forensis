@@ -11,20 +11,36 @@
                 </div>
 
                 <form method="POST">
-                    <div class="form-floating mb-3">
-                        <input type="text" name="username" class="form-control" id="floatingInput" placeholder="Username" required autofocus>
-                        <label for="floatingInput">Username</label>
-                    </div>
-                    <div class="form-floating mb-4">
-                        <input type="password" name="password" class="form-control" id="floatingPassword" placeholder="Password" required>
-                        <label for="floatingPassword">Password</label>
-                    </div>
+                    {% if not otp_required %}
+                        <div class="form-floating mb-3">
+                            <input type="text" name="username" class="form-control" id="floatingInput" placeholder="Username" required autofocus>
+                            <label for="floatingInput">Username</label>
+                        </div>
+                        <div class="form-floating mb-4">
+                            <input type="password" name="password" class="form-control" id="floatingPassword" placeholder="Password" required>
+                            <label for="floatingPassword">Password</label>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-lock me-2"></i> Two-Factor Authentication Required
+                        </div>
+                        <input type="hidden" name="username" value="{{ username }}">
+                        <input type="hidden" name="password" value="{{ password }}">
+                        <div class="form-floating mb-4">
+                            <input type="text" name="otp" class="form-control" id="floatingOtp" placeholder="Enter OTP" required autofocus autocomplete="off">
+                            <label for="floatingOtp">Authenticator Code</label>
+                        </div>
+                    {% endif %}
 
-                    <button class="btn btn-primary w-100 py-2 fs-5" type="submit">Sign In</button>
+                    <button class="btn btn-primary w-100 py-2 fs-5" type="submit">
+                        {% if otp_required %}Verify & Sign In{% else %}Sign In{% endif %}
+                    </button>
 
+                    {% if not otp_required %}
                     <div class="mt-4 text-center">
                         <small class="text-muted">Protected Access Only</small>
                     </div>
+                    {% endif %}
                 </form>
             </div>
         </div>

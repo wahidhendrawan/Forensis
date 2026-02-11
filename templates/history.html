@@ -2,57 +2,78 @@
 
 {% block content %}
 <div class="row mb-4">
-    <div class="col-md-12">
-        <h2>Analysis History</h2>
-        <p class="text-muted">Review past analysis results.</p>
+    <div class="col-12 d-flex justify-content-between align-items-center">
+        <div>
+            <h2 class="fw-bold"><i class="fas fa-history text-primary"></i> Analysis History</h2>
+            <p class="text-muted mb-0">Review and manage past analysis results.</p>
+        </div>
+        {% if current_user.role == 'admin' %}
+        <a href="{{ url_for('reset_data') }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('WARNING: This will delete ALL history. Continue?')">
+            <i class="fas fa-trash me-1"></i> Clear All History
+        </a>
+        {% endif %}
     </div>
 </div>
 
-<div class="row">
-    <div class="col-md-12">
+<div class="card shadow-sm">
+    <div class="card-body p-0">
         {% if analyses %}
-        <div class="card shadow-sm">
-            <div class="card-body">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Timestamp</th>
-                            <th>Type</th>
-                            <th>Filename</th>
-                            <th>User</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for analysis in analyses %}
-                        <tr>
-                            <td>{{ analysis.id }}</td>
-                            <td>{{ analysis.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                            <td>
-                                {% if analysis.type == 'logs' %}
-                                    <span class="badge bg-primary">Log Analysis</span>
-                                {% elif analysis.type == 'network' %}
-                                    <span class="badge bg-warning text-dark">Network Analysis</span>
-                                {% elif 'memory' in analysis.type %}
-                                    <span class="badge bg-success">Memory Analysis</span>
-                                {% else %}
-                                    <span class="badge bg-secondary">{{ analysis.type }}</span>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Timestamp</th>
+                        <th>Type</th>
+                        <th>Filename</th>
+                        <th>User</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for analysis in analyses %}
+                    <tr>
+                        <td>{{ analysis.id }}</td>
+                        <td class="small text-muted">{{ analysis.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        <td>
+                            {% if analysis.type == 'logs' %}
+                                <span class="badge bg-primary">Log Analysis</span>
+                            {% elif analysis.type == 'network' %}
+                                <span class="badge bg-warning text-dark">Network Analysis</span>
+                            {% elif 'memory' in analysis.type %}
+                                <span class="badge bg-success">Memory Analysis</span>
+                            {% else %}
+                                <span class="badge bg-secondary">{{ analysis.type }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ analysis.filename or 'N/A' }}</td>
+                        <td>
+                            <i class="fas fa-user-circle me-1 text-secondary"></i> {{ analysis.user.username }}
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{{ url_for('view_history', id=analysis.id) }}" class="btn btn-outline-primary" title="View Details">
+                                    <i class="fas fa-eye"></i> View
+                                </a>
+                                {% if current_user.role == 'admin' or current_user.id == analysis.user_id %}
+                                <a href="{{ url_for('delete_history', id=analysis.id) }}" class="btn btn-outline-danger" title="Delete Record" onclick="return confirm('Delete this analysis record?')">
+                                    <i class="fas fa-trash-alt"></i>
+                                </a>
                                 {% endif %}
-                            </td>
-                            <td>{{ analysis.filename or 'N/A' }}</td>
-                            <td>{{ analysis.user.username }}</td>
-                            <td>
-                                <a href="{{ url_for('view_history', id=analysis.id) }}" class="btn btn-sm btn-outline-primary">View Results</a>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
         {% else %}
-        <div class="alert alert-info">No history found. Run an analysis to see it here.</div>
+        <div class="p-5 text-center text-muted">
+            <i class="fas fa-clipboard-list fa-3x mb-3 text-secondary opacity-50"></i>
+            <h5>No Analysis History Found</h5>
+            <p>Run your first analysis to see it here.</p>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary btn-sm mt-2">Go to Dashboard</a>
+        </div>
         {% endif %}
     </div>
 </div>
