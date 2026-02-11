@@ -92,8 +92,8 @@
             <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Logs Status Distribution</h5>
             </div>
-            <div class="card-body">
-                <canvas id="logsStatusChart" height="250"></canvas>
+            <div class="card-body position-relative" style="height: 300px;">
+                <canvas id="logsStatusChart"></canvas>
             </div>
         </div>
     </div>
@@ -103,8 +103,8 @@
             <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Top Log Sources</h5>
             </div>
-            <div class="card-body">
-                <canvas id="logsSourceChart" height="250"></canvas>
+            <div class="card-body position-relative" style="height: 300px;">
+                <canvas id="logsSourceChart"></canvas>
             </div>
         </div>
     </div>
@@ -138,7 +138,6 @@
     </div>
 </div>
 
-<!-- Chart Data Integration -->
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         // Logs Status Doughnut

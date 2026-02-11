@@ -7,17 +7,24 @@
   --bs-danger: #dc3545;
   --bs-light: #f8f9fa;
   --bs-dark: #212529;
-  --bs-body-bg: #212529;
-  --bs-body-color: #f8f9fa;
-  --card-bg: #2b3035;
-  --nav-bg: #1a1d20;
+
+  /* Light Mode Variables (Default) */
+  --bs-body-bg: #f8f9fa;
+  --bs-body-color: #212529;
+  --card-bg: #ffffff;
+  --nav-bg: #343a40;
+  --border-color: rgba(0,0,0,0.1);
+  --text-muted: #6c757d;
 }
 
 [data-bs-theme="dark"] {
+  /* Dark Mode Variables (Override) */
   --bs-body-bg: #121212;
   --bs-body-color: #e0e0e0;
   --card-bg: #1e1e1e;
   --nav-bg: #000000;
+  --border-color: rgba(255,255,255,0.1);
+  --text-muted: #adb5bd;
 }
 
 body {
@@ -27,6 +34,7 @@ body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    transition: background-color 0.3s, color 0.3s;
 }
 
 .navbar {
@@ -44,38 +52,47 @@ body {
 
 .card {
     background-color: var(--card-bg);
-    border: 1px solid rgba(255,255,255,0.1);
-    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     border-radius: 8px;
     margin-bottom: 1.5rem;
+    transition: background-color 0.3s, border-color 0.3s;
 }
 
 .card-header {
-    background-color: rgba(0,0,0,0.2);
-    border-bottom: 1px solid rgba(255,255,255,0.1);
+    background-color: rgba(0,0,0,0.05);
+    border-bottom: 1px solid var(--border-color);
     font-weight: 600;
+}
+
+[data-bs-theme="dark"] .card-header {
+    background-color: rgba(255,255,255,0.05);
 }
 
 .table {
     --bs-table-bg: transparent;
     --bs-table-color: var(--bs-body-color);
-    --bs-table-border-color: rgba(255,255,255,0.1);
+    --bs-table-border-color: var(--border-color);
 }
 
 .table-hover > tbody > tr:hover > * {
+    --bs-table-accent-bg: rgba(0,0,0,0.05);
+}
+
+[data-bs-theme="dark"] .table-hover > tbody > tr:hover > * {
     --bs-table-accent-bg: rgba(255,255,255,0.05);
 }
 
 .form-control, .form-select {
-    background-color: #2b3035;
-    border: 1px solid rgba(255,255,255,0.2);
-    color: #fff;
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--bs-body-color);
 }
 
 .form-control:focus, .form-select:focus {
-    background-color: #2b3035;
+    background-color: var(--card-bg);
     border-color: var(--bs-primary);
-    color: #fff;
+    color: var(--bs-body-color);
     box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
 }
 
@@ -94,7 +111,7 @@ footer {
     background-color: var(--nav-bg);
     padding: 1.5rem 0;
     font-size: 0.9rem;
-    color: #6c757d;
+    color: #adb5bd;
 }
 
 /* Custom Scrollbar */
@@ -103,7 +120,7 @@ footer {
 }
 
 ::-webkit-scrollbar-track {
-  background: #1e1e1e;
+  background: var(--bs-body-bg);
 }
 
 ::-webkit-scrollbar-thumb {
