@@ -4,7 +4,7 @@
   <div class="col-12">
     <h2>Memory Forensics Helper</h2>
     <p class="text-muted">
-      Generate a memory analysis playbook (Volatility-focused) or paste existing output to triage quickly.
+      Generate a memory analysis playbook (Volatility-focused) or upload/paste existing output to triage quickly.
     </p>
   </div>
 </div>
@@ -87,10 +87,14 @@
   </div>
 
   <div class="tab-pane fade {% if parsed_output %}show active{% endif %}" id="triage" role="tabpanel" aria-labelledby="triage-tab">
-    <form method="post" class="mb-4">
+    <form method="post" enctype="multipart/form-data" class="mb-4">
       <input type="hidden" name="mode" value="triage">
       <div class="mb-3">
-        <label class="form-label">Memory Analysis Output</label>
+        <label class="form-label">Upload Output File</label>
+        <input type="file" name="memory_file" class="form-control" accept=".txt,.log,.out">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Or Paste Output</label>
         <textarea name="raw_output" rows="10" class="form-control" placeholder="Paste Volatility / Rekall output here for quick triage..."></textarea>
       </div>
       <button class="btn btn-primary">Analyze Output</button>
@@ -115,7 +119,7 @@
       </div>
 
       <h5 class="mb-2">Suspicious Indicators</h5>
-      {% if parsed_output.suspicious %}
+      {% if parsed_output.get("suspicious") %}
         <ul class="list-group list-group-flush small mb-4">
           {% for hit in parsed_output.suspicious %}
             <li class="list-group-item">
