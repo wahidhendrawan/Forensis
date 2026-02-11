@@ -129,7 +129,7 @@ This feature fails silently if the backend is unreachable — the web UI will no
 Requires **Python 3.10+**
 
 ```bash
-git clone https://github.com/<username>/Forensis.git
+git clone https://github.com/wahidhendrawan/Forensis.git
 cd Forensis
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
