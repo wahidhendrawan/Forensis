@@ -9,17 +9,21 @@
   </div>
 </div>
 
-<form method="post" enctype="multipart/form-data" class="mb-4">
-  <div class="row g-3">
-    <div class="col-md-6">
-      <label class="form-label">PCAP File</label>
-      <input type="file" name="pcap_file" class="form-control" required>
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <form method="post" enctype="multipart/form-data">
+            <div class="row g-3">
+                <div class="col-md-9">
+                    <label class="form-label">PCAP File</label>
+                    <input type="file" name="pcap_file" class="form-control" required>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn btn-primary w-100">Analyze PCAP</button>
+                </div>
+            </div>
+        </form>
     </div>
-  </div>
-  <div class="mt-3 d-flex gap-2">
-    <button class="btn btn-primary">Analyze PCAP</button>
-  </div>
-</form>
+</div>
 
 {% if results %}
   <div class="d-flex justify-content-between align-items-center mb-2">
@@ -34,7 +38,7 @@
     <div class="col-md-4">
       <div class="card shadow-sm">
         <div class="card-body">
-          <ul class="list-unstyled small">
+          <ul class="list-unstyled mb-0">
             {% if results.summary.error %}
               <li class="text-danger">{{ results.summary.error }}</li>
             {% else %}
@@ -49,10 +53,10 @@
   </div>
 
   {% if results.anomalies %}
-    <h5 class="mb-2">Suspicious Flows</h5>
+    <h5 class="mb-2 text-danger">Suspicious Flows</h5>
     <div class="table-responsive mb-4">
-      <table class="table table-sm table-striped align-middle">
-        <thead>
+      <table class="table table-sm table-striped align-middle table-hover">
+        <thead class="table-danger">
           <tr>
             <th>Reason</th>
             <th>Src</th>
@@ -82,19 +86,19 @@
     </div>
   {% endif %}
 
-  <h5 class="mb-2">Top Flows (by bytes)</h5>
+  <h5 class="mb-2">Traffic Flows</h5>
   <div class="table-responsive mb-4">
-    <table class="table table-sm table-striped align-middle">
-      <thead>
+    <table class="table table-sm table-striped align-middle table-hover" id="flowsTable">
+      <thead class="table-light">
         <tr>
-          <th>Src</th>
-          <th>Dst</th>
-          <th>Sport</th>
-          <th>Dport</th>
-          <th>Proto</th>
-          <th>Packets</th>
-          <th>Bytes</th>
-          <th>Avg Payload</th>
+          <th style="cursor:pointer" onclick="sortTable(0)">Src <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(1)">Dst <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(2, true)">Sport <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(3, true)">Dport <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(4)">Proto <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(5, true)">Packets <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(6, true)">Bytes <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(7, true)">Avg Payload <i class="fas fa-sort small text-muted"></i></th>
         </tr>
       </thead>
       <tbody class="small">
@@ -110,7 +114,7 @@
             <td>{{ '%.1f'|format(f.avg_payload) }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="8" class="text-muted">No flows parsed.</td></tr>
+          <tr><td colspan="8" class="text-muted text-center">No flows parsed.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -144,5 +148,52 @@
       </div>
     </div>
   </div>
+
+  <script>
+  function sortTable(n, isNumeric=false) {
+    var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+    table = document.getElementById("flowsTable");
+    switching = true;
+    dir = "asc";
+    while (switching) {
+      switching = false;
+      rows = table.rows;
+      for (i = 1; i < (rows.length - 1); i++) {
+        shouldSwitch = false;
+        x = rows[i].getElementsByTagName("TD")[n];
+        y = rows[i + 1].getElementsByTagName("TD")[n];
+        var xContent = x.innerText.toLowerCase();
+        var yContent = y.innerText.toLowerCase();
+
+        if (isNumeric) {
+            xContent = parseFloat(xContent) || 0;
+            yContent = parseFloat(yContent) || 0;
+        }
+
+        if (dir == "asc") {
+          if (xContent > yContent) {
+            shouldSwitch = true;
+            break;
+          }
+        } else if (dir == "desc") {
+          if (xContent < yContent) {
+            shouldSwitch = true;
+            break;
+          }
+        }
+      }
+      if (shouldSwitch) {
+        rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+        switching = true;
+        switchcount ++;
+      } else {
+        if (switchcount == 0 && dir == "asc") {
+          dir = "desc";
+          switching = true;
+        }
+      }
+    }
+  }
+  </script>
 {% endif %}
 {% endblock %}
