@@ -1,0 +1,19 @@
+title: Suspicious PowerShell Execution
+id: susp_powershell
+status: stable
+description: Detects suspicious PowerShell keywords in logs or memory
+author: Forensis
+date: 2023/10/01
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        message:
+            - '*powershell*'
+            - '*DownloadString*'
+            - '*Invoke-Expression*'
+            - '*IEX*'
+            - '*Bypass*'
+    condition: selection
+level: high

@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h2 class="fw-bold"><i class="fas fa-users-cog text-primary"></i> Administration</h2>
+        <p class="text-muted">Manage users, roles, and groups.</p>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <span>Add New User</span>
+                <i class="fas fa-user-plus"></i>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('manage_users') }}">
+                    <div class="mb-3">
+                        <label class="form-label">Username</label>
+                        <input type="text" name="username" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Password</label>
+                        <input type="password" name="password" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Role</label>
+                        <select name="role" class="form-select">
+                            <option value="analyst">Analyst</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Group</label>
+                        <select name="group_id" class="form-select">
+                            <option value="">None</option>
+                            {% for group in groups %}
+                            <option value="{{ group.id }}">{{ group.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Create User</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+                <span>Manage Groups</span>
+                <i class="fas fa-users"></i>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('add_group') }}" class="mb-4">
+                    <label class="form-label">New Group Name</label>
+                    <div class="input-group">
+                        <input type="text" name="name" class="form-control" required>
+                        <button type="submit" class="btn btn-secondary">Add</button>
+                    </div>
+                </form>
+
+                <h6 class="text-muted border-bottom pb-2">Existing Groups</h6>
+                <ul class="list-group list-group-flush small">
+                    {% for group in groups %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        {{ group.name }}
+                        {% if group.name != 'Administrators' and not group.users %}
+                        <a href="{{ url_for('delete_group', group_id=group.id) }}" class="text-danger" onclick="return confirm('Delete group {{ group.name }}?')" title="Delete Group">
+                            <i class="fas fa-trash-alt"></i>
+                        </a>
+                        {% else %}
+                        <span class="text-muted" title="Cannot delete (System group or has users)"><i class="fas fa-lock"></i></span>
+                        {% endif %}
+                    </li>
+                    {% else %}
+                    <li class="list-group-item text-muted">No groups found.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h5 class="mb-0">User Directory</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th>
+                                <th>Username</th>
+                                <th>Role</th>
+                                <th>Group</th>
+                                <th>MFA</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in users %}
+                            <tr>
+                                <td>{{ user.id }}</td>
+                                <td class="fw-bold">{{ user.username }}</td>
+                                <td>
+                                    <span class="badge {% if user.role == 'admin' %}bg-danger{% else %}bg-info{% endif %}">
+                                        {{ user.role|capitalize }}
+                                    </span>
+                                </td>
+                                <td>{{ user.group.name if user.group else '-' }}</td>
+                                <td>
+                                    {% if user.mfa_enabled %}
+                                    <span class="badge bg-success"><i class="fas fa-check"></i> Enabled</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Disabled</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if user.username != 'admin' and user.id != current_user.id %}
+                                    <a href="{{ url_for('delete_user', user_id=user.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete user {{ user.username }}?')">
+                                        <i class="fas fa-trash-alt me-1"></i> Delete
+                                    </a>
+                                    {% else %}
+                                    <span class="text-muted small fst-italic">Protected</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
