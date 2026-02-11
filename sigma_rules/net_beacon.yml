@@ -1,0 +1,15 @@
+title: Potential C2 Beaconing
+id: net_beacon
+status: experimental
+description: Detects potential C2 traffic (low volume, regular) - Placeholder for advanced analysis
+author: Forensis
+date: 2023/10/01
+logsource:
+    category: network
+    product: pcap
+detection:
+    selection:
+        avg_payload:
+            - '0' # Example placeholder
+    condition: selection
+level: medium
