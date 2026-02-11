@@ -6,12 +6,8 @@ services:
     container_name: forensis
     ports:
       - "5000:5000"
-    environment:
-      # Optional: configure external integrations
-      # FORENSIS_ELASTIC_URL: "http://elasticsearch:9200"
-      # FORENSIS_ELASTIC_INDEX: "forensis-events"
-      # FORENSIS_LOKI_URL: "http://loki:3100"
-      # FORENSIS_LOKI_LABELS: 'app="forensis",env="lab"'
-      # FORENSIS_SIGMA_URLS: "https://raw.githubusercontent.com/.../rule1.yml,https://.../rule2.yml"
+    env_file:
+      - .env
     volumes:
       - ./uploads:/app/uploads
+      - ./instance:/app/instance
