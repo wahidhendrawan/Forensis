@@ -1,16 +1,133 @@
+:root {
+  --bs-primary: #0d6efd;
+  --bs-secondary: #6c757d;
+  --bs-success: #198754;
+  --bs-info: #0dcaf0;
+  --bs-warning: #ffc107;
+  --bs-danger: #dc3545;
+  --bs-light: #f8f9fa;
+  --bs-dark: #212529;
+
+  /* Light Mode Variables */
+  --bs-body-bg: #f8f9fa;
+  --bs-body-color: #212529;
+  --card-bg: #ffffff;
+  --nav-bg: #343a40;
+  --border-color: rgba(0,0,0,0.1);
+  --text-muted: #6c757d;
+}
+
+[data-bs-theme="dark"] {
+  /* Dark Mode Variables */
+  --bs-body-bg: #121212;
+  --bs-body-color: #e0e0e0;
+  --card-bg: #1e1e1e;
+  --nav-bg: #000000;
+  --border-color: rgba(255,255,255,0.1);
+  --text-muted: #adb5bd;
+}
+
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background-color: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    transition: background-color 0.3s, color 0.3s;
 }
 
-pre code {
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.card {
-  border-radius: 1rem;
+.navbar {
+    background-color: var(--nav-bg) !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    padding-top: 1rem;
+    padding-bottom: 1rem;
 }
 
 .navbar-brand {
-  letter-spacing: 0.03em;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #fff !important;
+}
+
+.card {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    transition: background-color 0.3s, border-color 0.3s;
+}
+
+.card-header {
+    background-color: rgba(0,0,0,0.05);
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 600;
+}
+
+[data-bs-theme="dark"] .card-header {
+    background-color: rgba(255,255,255,0.05);
+}
+
+.table {
+    --bs-table-bg: transparent;
+    --bs-table-color: var(--bs-body-color);
+    --bs-table-border-color: var(--border-color);
+}
+
+.table-hover > tbody > tr:hover > * {
+    --bs-table-accent-bg: rgba(0,0,0,0.05);
+}
+
+[data-bs-theme="dark"] .table-hover > tbody > tr:hover > * {
+    --bs-table-accent-bg: rgba(255,255,255,0.05);
+}
+
+.form-control, .form-select {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--bs-body-color);
+}
+
+.form-control:focus, .form-select:focus {
+    background-color: var(--card-bg);
+    border-color: var(--bs-primary);
+    color: var(--bs-body-color);
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+.btn-primary {
+    background-color: #375a7f;
+    border-color: #375a7f;
+}
+
+.btn-primary:hover {
+    background-color: #2b4764;
+    border-color: #28415b;
+}
+
+footer {
+    margin-top: auto;
+    background-color: var(--nav-bg);
+    padding: 1.5rem 0;
+    font-size: 0.9rem;
+    color: #adb5bd;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bs-body-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #888;
 }
