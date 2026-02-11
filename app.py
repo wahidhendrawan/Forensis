@@ -17,23 +17,37 @@ from flask import (
     session,
 )
 from werkzeug.utils import secure_filename
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask_bcrypt import Bcrypt
+from dotenv import load_dotenv
 
+from forensis.models import db, User, Group, AnalysisHistory
 from forensis.analyzers.log_analyzer import analyze_logs
 from forensis.analyzers.network_analyzer import analyze_pcap
 from forensis.analyzers.memory_helper import generate_playbook, analyze_memory_output
 from forensis.analyzers.sigma_engine import SigmaEngine
 from forensis.integrations.elk_loki import ship_events
 
+load_dotenv()
+
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+DB_PATH = os.path.join(BASE_DIR, "instance", "forensis.db")
 
-ALLOWED_LOG_EXT = {"log", "txt"}
+ALLOWED_LOG_EXT = {"log", "txt", "csv", "json"}
 ALLOWED_PCAP_EXT = {"pcap", "pcapng"}
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FORENSIS_SECRET_KEY", "change-me-in-production")
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('FORENSIS_DB_URI', f'sqlite:///{DB_PATH}')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db.init_app(app)
+bcrypt = Bcrypt(app)
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
 
 # In-memory storage for last analysis results (per type) for export & dashboard
 LAST_RESULTS = {
@@ -44,38 +58,31 @@ LAST_RESULTS = {
 
 sigma_engine = SigmaEngine(os.path.join(BASE_DIR, "sigma_rules"))
 
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 def allowed_file(filename, allowed_ext):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in allowed_ext
 
-
-def get_admin_credentials():
-    user = os.getenv("FORENSIS_ADMIN_USER", "admin")
-    password = os.getenv("FORENSIS_ADMIN_PASSWORD", "forensis123")
-    return user, password
-
-
-def login_required(view_func):
-    @wraps(view_func)
-    def wrapper(*args, **kwargs):
-        if not session.get("authenticated"):
-            flash("Please log in to access this page.", "warning")
-            return redirect(url_for("login"))
-        return view_func(*args, **kwargs)
-
-    return wrapper
-
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or current_user.role != 'admin':
+            flash("Access denied: Admins only.", "danger")
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated_function
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "").strip()
-        admin_user, admin_pass = get_admin_credentials()
 
-        if username == admin_user and password == admin_pass:
-            session["authenticated"] = True
-            session["username"] = username
+        user = User.query.filter_by(username=username).first()
+        if user and bcrypt.check_password_hash(user.password_hash, password):
+            login_user(user)
             flash("Logged in successfully.", "success")
             return redirect(request.args.get("next") or url_for("dashboard"))
         else:
@@ -86,8 +93,9 @@ def login():
 
 
 @app.route("/logout")
+@login_required
 def logout():
-    session.clear()
+    logout_user()
     flash("You have been logged out.", "info")
     return redirect(url_for("login"))
 
@@ -126,6 +134,57 @@ def dashboard():
 
     return render_template("dashboard.html", dashboard_data=dashboard_data)
 
+@app.route("/manage_users", methods=["GET", "POST"])
+@login_required
+@admin_required
+def manage_users():
+    if request.method == "POST":
+        username = request.form.get("username").strip()
+        password = request.form.get("password").strip()
+        role = request.form.get("role")
+        group_id = request.form.get("group_id")
+
+        if User.query.filter_by(username=username).first():
+            flash("Username already exists.", "danger")
+        else:
+            hashed_pw = bcrypt.generate_password_hash(password).decode('utf-8')
+            new_user = User(username=username, password_hash=hashed_pw, role=role, group_id=group_id)
+            db.session.add(new_user)
+            db.session.commit()
+            flash(f"User {username} added successfully.", "success")
+        return redirect(url_for('manage_users'))
+
+    users = User.query.all()
+    groups = Group.query.all()
+    return render_template("manage_users.html", users=users, groups=groups)
+
+@app.route("/manage_users/delete/<int:user_id>")
+@login_required
+@admin_required
+def delete_user(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.username == 'admin' or user.id == current_user.id:
+        flash("Cannot delete default admin or yourself.", "danger")
+    else:
+        db.session.delete(user)
+        db.session.commit()
+        flash(f"User {user.username} deleted.", "success")
+    return redirect(url_for('manage_users'))
+
+@app.route("/manage_groups", methods=["POST"])
+@login_required
+@admin_required
+def add_group():
+    name = request.form.get("name").strip()
+    if Group.query.filter_by(name=name).first():
+        flash("Group already exists.", "danger")
+    else:
+        new_group = Group(name=name)
+        db.session.add(new_group)
+        db.session.commit()
+        flash(f"Group {name} added.", "success")
+    return redirect(url_for('manage_users'))
+
 
 @app.route("/sigma/refresh", methods=["POST"])
 @login_required
@@ -156,6 +215,15 @@ def sigma_sync():
     flash(f"Sigma rules synchronized from {len(urls)} URL(s).", "success")
     return redirect(request.referrer or url_for("dashboard"))
 
+def save_history(type, results, filename=None):
+    history = AnalysisHistory(
+        type=type,
+        user_id=current_user.id,
+        results_json=json.dumps(results, default=str),
+        filename=filename
+    )
+    db.session.add(history)
+    db.session.commit()
 
 @app.route("/log-analyzer", methods=["GET", "POST"])
 @login_required
@@ -166,8 +234,10 @@ def log_analyzer():
         log_type = request.form.get("log_type") or "generic"
         log_text = request.form.get("log_text", "").strip()
         file = request.files.get("log_file")
+        filename = None
 
         if file and file.filename:
+            # allowed_file check is a bit generic, we might want to relax it for CSV/JSON or extend ALLOWED_LOG_EXT
             if not allowed_file(file.filename, ALLOWED_LOG_EXT):
                 flash("Unsupported log file extension.", "danger")
                 return redirect(request.url)
@@ -188,6 +258,7 @@ def log_analyzer():
         # Store last results for export/dashboard and push to ELK/Loki
         LAST_RESULTS["logs"] = results
         ship_events(events, "logs")
+        save_history("logs", results, filename)
 
     return render_template(
         "log_analyzer.html",
@@ -220,6 +291,7 @@ def network_analyzer():
 
         LAST_RESULTS["network"] = results
         ship_events(events, "network")
+        save_history("network", results, filename)
 
     return render_template(
         "network_analyzer.html",
@@ -243,26 +315,42 @@ def memory_helper():
             playbook = generate_playbook(profile, focus)
             events = playbook.get("events", [])
             sigma_matches = sigma_engine.correlate_events(events)
-            LAST_RESULTS["memory"] = {
+            results = {
                 "mode": "playbook",
                 "events": events,
                 "summary": None,
             }
+            LAST_RESULTS["memory"] = results
             ship_events(events, "memory")
+            save_history("memory_playbook", results)
         else:
             raw_output = request.form.get("raw_output", "").strip()
+            file = request.files.get("memory_file")
+            filename = None
+
+            if file and file.filename:
+                 filename = secure_filename(file.filename)
+                 # Assuming text based output
+                 path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+                 file.save(path)
+                 with open(path, "r", errors="ignore") as f:
+                     raw_output = f.read()
+
             if not raw_output:
-                flash("Please paste memory analysis output.", "warning")
+                flash("Please paste memory analysis output or upload a file.", "warning")
                 return redirect(request.url)
+
             parsed_output = analyze_memory_output(raw_output)
             events = parsed_output.get("events", [])
             sigma_matches = sigma_engine.correlate_events(events)
-            LAST_RESULTS["memory"] = {
+            results = {
                 "mode": "triage",
                 "events": events,
                 "summary": parsed_output.get("summary"),
             }
+            LAST_RESULTS["memory"] = results
             ship_events(events, "memory")
+            save_history("memory_triage", results, filename)
 
     return render_template(
         "memory_helper.html",
@@ -271,6 +359,50 @@ def memory_helper():
         sigma_matches=sigma_matches,
     )
 
+@app.route("/history")
+@login_required
+def history():
+    analyses = AnalysisHistory.query.order_by(AnalysisHistory.timestamp.desc()).all()
+    return render_template("history.html", analyses=analyses)
+
+@app.route("/history/view/<int:id>")
+@login_required
+def view_history(id):
+    analysis = AnalysisHistory.query.get_or_404(id)
+    results = analysis.get_results()
+
+    # Render appropriate template based on type
+    if analysis.type == "logs":
+         return render_template("log_analyzer.html", results=results, sigma_matches=sigma_engine.correlate_events(results.get("events", [])), historical=True)
+    elif analysis.type == "network":
+         return render_template("network_analyzer.html", results=results, sigma_matches=sigma_engine.correlate_events(results.get("events", [])), historical=True)
+    elif "memory" in analysis.type:
+         playbook = results if analysis.type == "memory_playbook" else None
+         parsed_output = results if analysis.type == "memory_triage" else None
+         # Fix format for template if needed
+         if analysis.type == "memory_playbook":
+             parsed_output = None
+         elif analysis.type == "memory_triage":
+             playbook = None
+
+         return render_template("memory_helper.html", playbook=playbook, parsed_output=parsed_output, sigma_matches=sigma_engine.correlate_events(results.get("events", [])), historical=True)
+
+    flash("Unknown analysis type", "danger")
+    return redirect(url_for('history'))
+
+@app.route("/reset_data")
+@login_required
+@admin_required
+def reset_data():
+    try:
+        # Delete all history
+        AnalysisHistory.query.delete()
+        db.session.commit()
+        flash("All analysis history has been reset.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error resetting data: {e}", "danger")
+    return redirect(url_for('dashboard'))
 
 # -------- Export helpers --------
 
@@ -505,4 +637,24 @@ def export_report_bundle():
 
 
 if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
+        # Ensure default admin exists
+        admin_user = os.getenv("FORENSIS_ADMIN_USER", "admin")
+        if not User.query.filter_by(username=admin_user).first():
+            print(f"Creating default admin user: {admin_user}")
+            admin_pass = os.getenv("FORENSIS_ADMIN_PASSWORD", "forensis123")
+            hashed_pw = bcrypt.generate_password_hash(admin_pass).decode('utf-8')
+
+            # Create default group
+            default_group = Group.query.filter_by(name='Administrators').first()
+            if not default_group:
+                default_group = Group(name='Administrators')
+                db.session.add(default_group)
+                db.session.commit()
+
+            new_admin = User(username=admin_user, password_hash=hashed_pw, role='admin', group_id=default_group.id)
+            db.session.add(new_admin)
+            db.session.commit()
+
     app.run(host="0.0.0.0", port=5000, debug=True)
