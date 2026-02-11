@@ -86,9 +86,10 @@ def login():
 
         user = User.query.filter_by(username=username).first()
         if user and bcrypt.check_password_hash(user.password_hash, password):
+            # MFA Verification Logic
             if user.mfa_enabled:
                 if not otp:
-                     # Second step: Prompt for OTP
+                     # Second step: Prompt for OTP if not provided
                      return render_template("login.html", otp_required=True, username=username, password=password)
                 else:
                     # Verify OTP
@@ -97,6 +98,7 @@ def login():
                         flash("Invalid authentication code.", "danger")
                         return render_template("login.html", otp_required=True, username=username, password=password)
 
+            # Login successful (Either MFA passed or MFA not enabled)
             login_user(user)
             flash("Logged in successfully.", "success")
             return redirect(request.args.get("next") or url_for("dashboard"))
@@ -134,7 +136,9 @@ def setup_mfa():
             return redirect(url_for("dashboard"))
         else:
             flash("Invalid verification code. Please try again.", "danger")
-            return render_template("setup_mfa.html", secret=secret, qr_code=request.form.get("qr_code_hidden")) # Re-render might be tricky without regenerating or storing state
+            # Note: In a real app, you'd need to re-pass the QR code/secret to the template
+            # or handle state better, but keeping it simple as per original code.
+            return render_template("setup_mfa.html", secret=secret, qr_code=request.form.get("qr_code_hidden"))
 
     # Generate secret and QR
     secret = pyotp.random_base32()
@@ -267,7 +271,7 @@ def add_group():
 @admin_required
 def delete_group(group_id):
     group = Group.query.get_or_404(group_id)
-    # Check if group has users or is default admin group (optional check)
+    # Check if group has users or is default admin group
     if group.name == 'Administrators':
          flash("Cannot delete Administrators group.", "danger")
     elif group.users:
@@ -348,7 +352,6 @@ def log_analyzer():
         events = results.get("events", [])
         sigma_matches = sigma_engine.correlate_events(events)
 
-        # Store last results for export/dashboard and push to ELK/Loki
         LAST_RESULTS["logs"] = results
         ship_events(events, "logs")
         save_history("logs", results, filename)

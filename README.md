@@ -2,6 +2,8 @@
 
 **Forensis** is a modern, enterprise-ready web platform designed for **forensics and threat analysis workflows**. It combines advanced log parsing, network traffic analysis, memory forensics triage, and Sigma rule correlation into a unified, secure dashboard.
 
+
+
 ---
 
 ## 🔍 Key Features
@@ -66,9 +68,9 @@ Lightweight YAML-based engine for detecting threats across all modules.
 
 ### Prerequisites
 - **Python 3.10+**
-- **Docker & Docker Compose** (Recommended)
+- **Docker & Docker Compose** (Recommended for production)
 
-### 🐳 Docker Deployment (Fastest)
+### 🐳 Docker Deployment (Recommended)
 
 Forensis is pre-configured with Docker Compose for a production-ready setup including persistent storage.
 
@@ -76,39 +78,33 @@ Forensis is pre-configured with Docker Compose for a production-ready setup incl
    ```bash
    cp .env.example .env  # (Or create one based on documentation)
    # Edit .env to set your FORENSIS_SECRET_KEY and Admin credentials
-   ```
+Build and Run:
 
-2. **Build and Run:**
-   ```bash
-   docker-compose up -d --build
-   ```
+Bash
+docker-compose up -d --build
+Access: Open http://localhost:5000
 
-3. **Access:**
-   Open **http://localhost:5000**
-   - **Default Admin:** `admin` / `forensis123` (Change immediately!)
+Default Admin: admin / forensis123 (Change immediately!)
 
-### 🧰 Local Installation
+🧰 Local Installation (Manual)
+Clone and Install:
 
-1. **Clone and Install:**
-   ```bash
-   git clone https://github.com/<username>/Forensis.git
-   cd Forensis
-   python -m venv venv
-   source venv/bin/activate  # Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
+Bash
+git clone [https://github.com/wahidhendrawan/Forensis.git](https://github.com/wahidhendrawan/Forensis.git)
+cd Forensis
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+Run:
 
-2. **Run:**
-   ```bash
-   python app.py
-   ```
-   *The database will be automatically initialized on the first run.*
+Bash
+python app.py
+The database will be automatically initialized on the first run.
 
----
+Access: Open http://127.0.0.1:5000
 
-## 📂 Project Structure
-
-```text
+📂 Project Structure
+Plaintext
 Forensis/
 ├── app.py                  # Main application logic & routes
 ├── forensis/
@@ -131,30 +127,27 @@ Forensis/
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt
-```
+🔐 Security Features
+Authentication: Database-backed auth using Flask-Login and Bcrypt hashing.
 
----
+MFA: Time-based One-Time Password (TOTP) support using pyotp.
 
-## 🔐 Security Features
+Session Management: Secure session handling with administrative timeouts.
 
-- **Authentication:** Database-backed auth using `Flask-Login` and `Bcrypt` hashing.
-- **MFA:** Time-based One-Time Password (TOTP) support using `pyotp`.
-- **Session Management:** Secure session handling with administrative timeouts.
-- **Input Validation:** Strict file type validation and secure filename handling.
+Input Validation: Strict file type validation and secure filename handling.
 
----
+🎨 Customization
+Themes: Toggle between Light and Dark modes instantly via the navbar.
 
-## 🎨 Customization
+Configuration: Manage settings via .env:
 
-- **Themes:** Toggle between **Light** and **Dark** modes instantly via the navbar.
-- **Configuration:** Manage settings via `.env`:
-  - `FORENSIS_SECRET_KEY`
-  - `FORENSIS_ADMIN_USER` / `PASSWORD`
-  - `FORENSIS_SIGMA_URLS`
+FORENSIS_SECRET_KEY
 
----
+FORENSIS_ADMIN_USER / PASSWORD
 
-## 🪶 License
+FORENSIS_SIGMA_URLS
 
-Free to use and modify for **research, learning, or internal lab environments**.  
+🪶 License
+Free to use and modify for research, learning, or internal lab environments.
+
 No warranty is provided — use responsibly.
