@@ -154,7 +154,7 @@ docker run --rm -p 5000:5000 --name forensis \\
 Or use **docker-compose**:
 
 ```bash
-docker-compose up --build
+docker-compose up -d --build
 ```
 
 This will start Forensis on **http://localhost:5000**.
