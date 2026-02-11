@@ -129,7 +129,7 @@ This feature fails silently if the backend is unreachable — the web UI will no
 Requires **Python 3.10+**
 
 ```bash
-git clone https://github.com/<username>/Forensis.git
+git clone https://github.com/wahidhendrawan/Forensis.git
 cd Forensis
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
@@ -154,7 +154,7 @@ docker run --rm -p 5000:5000 --name forensis \\
 Or use **docker-compose**:
 
 ```bash
-docker-compose up --build
+docker-compose up -d --build
 ```
 
 This will start Forensis on **http://localhost:5000**.
