@@ -9,6 +9,8 @@ import qrcode
 from datetime import datetime
 from functools import wraps
 
+from urllib.parse import urlparse, urljoin
+
 from flask import (
     Flask,
     render_template,
@@ -32,6 +34,18 @@ from forensis.analyzers.sigma_engine import SigmaEngine
 from forensis.integrations.elk_loki import ship_events
 
 load_dotenv()
+
+def _is_safe_redirect_url(target):
+    host_url = urlparse(request.host_url)
+    ref_url = urlparse(urljoin(request.host_url, target))
+    return ref_url.scheme in ("http", "https") and host_url.netloc == ref_url.netloc
+
+
+def _safe_redirect(target, fallback="dashboard"):
+    if target and _is_safe_redirect_url(target):
+        return redirect(target)
+    return redirect(url_for(fallback))
+
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
@@ -101,7 +115,7 @@ def login():
             # Login successful (Either MFA passed or MFA not enabled)
             login_user(user)
             flash("Logged in successfully.", "success")
-            return redirect(request.args.get("next") or url_for("dashboard"))
+            return _safe_redirect(request.args.get("next"))
         else:
             flash("Invalid credentials.", "danger")
             return redirect(url_for("login"))
@@ -288,7 +302,7 @@ def delete_group(group_id):
 def sigma_refresh():
     sigma_engine.reload_rules()
     flash("Sigma rules reloaded from local and remote directories.", "success")
-    return redirect(request.referrer or url_for("dashboard"))
+    return _safe_redirect(request.referrer)
 
 
 @app.route("/sigma/sync", methods=["POST"])
@@ -305,12 +319,12 @@ def sigma_sync():
 
     if not urls:
         flash("No Sigma URLs provided.", "warning")
-        return redirect(request.referrer or url_for("dashboard"))
+        return _safe_redirect(request.referrer)
 
     sigma_engine.sync_from_urls(urls)
     sigma_engine.reload_rules()
     flash(f"Sigma rules synchronized from {len(urls)} URL(s).", "success")
-    return redirect(request.referrer or url_for("dashboard"))
+    return _safe_redirect(request.referrer)
 
 def save_history(type, results, filename=None):
     history = AnalysisHistory(
@@ -337,7 +351,7 @@ def log_analyzer():
             # allowed_file check is a bit generic, we might want to relax it for CSV/JSON or extend ALLOWED_LOG_EXT
             if not allowed_file(file.filename, ALLOWED_LOG_EXT):
                 flash("Unsupported log file extension.", "danger")
-                return redirect(request.url)
+                return _safe_redirect(request.url, "log_analyzer")
             filename = secure_filename(file.filename)
             path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
             file.save(path)
@@ -346,7 +360,7 @@ def log_analyzer():
 
         if not log_text:
             flash("Please paste log data or upload a log file.", "warning")
-            return redirect(request.url)
+            return _safe_redirect(request.url, "log_analyzer")
 
         results = analyze_logs(log_text, log_type=log_type)
         events = results.get("events", [])
@@ -372,10 +386,10 @@ def network_analyzer():
         file = request.files.get("pcap_file")
         if not file or not file.filename:
             flash("Please upload a PCAP file.", "warning")
-            return redirect(request.url)
+            return _safe_redirect(request.url, "network_analyzer")
         if not allowed_file(file.filename, ALLOWED_PCAP_EXT):
             flash("Unsupported PCAP file extension.", "danger")
-            return redirect(request.url)
+            return _safe_redirect(request.url, "network_analyzer")
 
         filename = secure_filename(file.filename)
         path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
@@ -434,7 +448,7 @@ def memory_helper():
 
             if not raw_output:
                 flash("Please paste memory analysis output or upload a file.", "warning")
-                return redirect(request.url)
+                return _safe_redirect(request.url, "memory_analyzer")
 
             parsed_output = analyze_memory_output(raw_output)
             events = parsed_output.get("events", [])
@@ -766,4 +780,4 @@ if __name__ == "__main__":
             db.session.add(new_admin)
             db.session.commit()
 
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False)
