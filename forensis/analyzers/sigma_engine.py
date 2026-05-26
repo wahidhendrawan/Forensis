@@ -1,11 +1,64 @@
 import os
+import socket
 from typing import List, Dict
+from urllib.parse import urlparse
 import yaml
 
 try:
     import requests
+    from requests.packages.urllib3.exceptions import InsecureRequestWarning
+    requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 except ImportError:
     requests = None  # type: ignore
+
+
+PRIVATE_IP_BLOCKS = [
+    ("127.0.0.0", "127.255.255.255"),
+    ("10.0.0.0", "10.255.255.255"),
+    ("172.16.0.0", "172.31.255.255"),
+    ("192.168.0.0", "192.168.255.255"),
+    ("169.254.0.0", "169.254.255.255"),
+    ("::1", "::1"),
+    ("fc00::", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+    ("fe80::", "febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+]
+
+
+def _ip_to_int(ip: str) -> int:
+    parts = ip.split(".")
+    return (int(parts[0]) << 24) + (int(parts[1]) << 16) + (int(parts[2]) << 8) + int(parts[3])
+
+
+def _is_private_ip(ip_str: str) -> bool:
+    try:
+        addr = _ip_to_int(ip_str)
+        for start, end in PRIVATE_IP_BLOCKS[:6]:
+            if _ip_to_int(start) <= addr <= _ip_to_int(end):
+                return True
+    except (IndexError, ValueError):
+        pass
+    return False
+
+
+def _is_safe_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        try:
+            addrs = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+            for family, _, _, _, sockaddr in addrs:
+                ip = sockaddr[0]
+                if _is_private_ip(ip):
+                    return False
+        except socket.gaierror:
+            return False
+        return True
+    except Exception:
+        return False
 
 
 class SigmaRule:
@@ -100,22 +153,19 @@ class SigmaEngine:
         self.reload_rules()
 
     def sync_from_urls(self, urls: List[str]):
-        # Download Sigma rules from external URLs into the remote directory.
-        # Each URL can point to:
-        # - A single .yml/.yaml Sigma rule file
-        # - A raw text URL containing a Sigma rule
         if not requests:
             return
 
         os.makedirs(self.remote_dir, exist_ok=True)
 
         for url in urls:
+            if not _is_safe_url(url):
+                continue
             try:
                 resp = requests.get(url, timeout=5)
                 if resp.status_code != 200:
                     continue
                 content = resp.text
-                # Basic filename derivation
                 name = os.path.basename(url.split("?")[0]) or "remote_rule.yml"
                 if not name.lower().endswith((".yml", ".yaml")):
                     name += ".yml"
