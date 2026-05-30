@@ -3,7 +3,7 @@
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
-        <h2 class="fw-bold"><i class="fas fa-memory text-primary me-2"></i>Memory Triage</h2>
+        <h2 class="fw-bold"><i class="fas fa-memory text-primary me-2"></i>Memory</h2>
         <p class="text-muted">Analyze raw memory output across structured and unstructured formats for suspicious indicators.</p>
     </div>
 </div>
@@ -13,8 +13,8 @@
         <form method="post" enctype="multipart/form-data">
             <div class="mb-3">
                 <label class="form-label fw-bold">Upload Memory Tool Output</label>
-                <input type="file" name="memory_file" class="form-control" accept=".txt,.log,.json,.jsonl,.ndjson,.csv,.tsv,.xml,.yaml,.yml,.zip">
-                <div class="form-text">Supported formats: TXT, LOG, JSON, JSONL/NDJSON, CSV, TSV, XML, YAML, ZIP bundle.</div>
+                <input type="file" name="memory_file" class="form-control" accept=".txt,.log,.json,.jsonl,.ndjson,.csv,.tsv,.xml,.yaml,.yml,.zip,.vmem,.mem">
+                <div class="form-text">Supported formats: TXT, LOG, JSON, JSONL/NDJSON, CSV, TSV, XML, YAML, ZIP bundle, VMEM, MEM.</div>
             </div>
             <div class="mb-3">
                 <label class="form-label fw-bold">Or Paste Raw Output</label>
@@ -46,6 +46,9 @@
         | Source file: <code>{{ parsed_output.summary.input_name }}</code>
         {% endif %}
         | Parsed records: <strong>{{ parsed_output.summary.parsed_records }}</strong>
+        {% if parsed_output.summary.threat_score is defined %}
+        | Threat score: <strong>{{ parsed_output.summary.threat_score }}</strong>
+        {% endif %}
     </div>
 
     {% if parsed_output.summary.severity_counts %}
@@ -103,6 +106,36 @@
         </div>
     </div>
     {% endif %}
+
+    <div class="accordion mt-3" id="accordionMemSigma">
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="headingMemSigma">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseMemSigma">
+                    Sigma Rule Correlation
+                </button>
+            </h2>
+            <div id="collapseMemSigma" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                    {% if sigma_matches %}
+                    <ul class="list-group list-group-flush small">
+                        {% for m in sigma_matches %}
+                        <li class="list-group-item">
+                            <div>
+                                <strong>{{ m.rule_title }}</strong>
+                                <span class="badge bg-danger text-uppercase">{{ m.rule_level }}</span>
+                            </div>
+                            <div class="text-muted small mb-1">{{ m.description }}</div>
+                            <code class="d-block text-break">{{ m.event.message or m.event.indicator or m.event.source }}</code>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-muted mb-0">No Sigma rule matches for this memory dataset.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endif %}
 {% endblock %}
