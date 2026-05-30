@@ -7,7 +7,7 @@
             <div class="card-body">
                 <div class="text-center mb-4">
                     <h1 class="display-5 fw-bold"><i class="fas fa-shield-halved text-primary"></i> Forensis</h1>
-                    <p class="text-muted">Threat Analysis & Incident Response Platform</p>
+                    <p class="text-muted">Threat Analysis & Forensics</p>
                 </div>
 
                 <form method="POST">
@@ -36,11 +36,6 @@
                         {% if otp_required %}Verify & Sign In{% else %}Sign In{% endif %}
                     </button>
 
-                    {% if not otp_required %}
-                    <div class="mt-4 text-center">
-                        <small class="text-muted">Protected Access Only</small>
-                    </div>
-                    {% endif %}
                 </form>
             </div>
         </div>

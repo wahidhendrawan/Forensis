@@ -1,133 +1,147 @@
 :root {
-  --bs-primary: #0d6efd;
-  --bs-secondary: #6c757d;
-  --bs-success: #198754;
-  --bs-info: #0dcaf0;
-  --bs-warning: #ffc107;
-  --bs-danger: #dc3545;
-  --bs-light: #f8f9fa;
-  --bs-dark: #212529;
-
-  /* Light Mode Variables (Default) */
-  --bs-body-bg: #f8f9fa;
-  --bs-body-color: #212529;
-  --card-bg: #ffffff;
-  --nav-bg: #343a40;
-  --border-color: rgba(0,0,0,0.1);
-  --text-muted: #6c757d;
+  --primary-color: #3f51b5;
+  --secondary-color: #f50057;
+  
+  /* Dark Mode (Default) */
+  --bg-body: #0f172a;
+  --bg-card: #1e293b;
+  --bg-nav: rgba(15, 23, 42, 0.9);
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --border-color: rgba(255, 255, 255, 0.1);
+  --accent-blue: #38bdf8;
+  --table-header: #334155;
+  --theme-toggle-bg: rgba(15, 23, 42, 0.7);
+  --theme-toggle-border: rgba(148, 163, 184, 0.5);
+  --theme-toggle-text: #e2e8f0;
 }
 
-[data-bs-theme="dark"] {
-  /* Dark Mode Variables (Override) */
-  --bs-body-bg: #121212;
-  --bs-body-color: #e0e0e0;
-  --card-bg: #1e1e1e;
-  --nav-bg: #000000;
-  --border-color: rgba(255,255,255,0.1);
-  --text-muted: #adb5bd;
+[data-bs-theme="light"] {
+  --bg-body: #f1f5f9;
+  --bg-card: #ffffff;
+  --bg-nav: rgba(255, 255, 255, 0.9);
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --border-color: rgba(0, 0, 0, 0.1);
+  --accent-blue: #0284c7;
+  --table-header: #e2e8f0;
+  --theme-toggle-bg: #e2e8f0;
+  --theme-toggle-border: #94a3b8;
+  --theme-toggle-text: #0f172a;
 }
 
 body {
-    background-color: var(--bs-body-bg);
-    color: var(--bs-body-color);
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    transition: background-color 0.3s, color 0.3s;
+    background-color: var(--bg-body);
+    color: var(--text-main);
+    transition: all 0.3s ease;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 .navbar {
-    background-color: var(--nav-bg) !important;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.5);
-    padding-top: 1rem;
-    padding-bottom: 1rem;
+    background: var(--bg-nav) !important;
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-color);
+}
+
+[data-bs-theme="light"] .navbar-nav .nav-link {
+    color: #475569 !important;
+}
+
+[data-bs-theme="light"] .navbar-nav .nav-link:hover {
+    color: var(--accent-blue) !important;
 }
 
 .navbar-brand {
-    font-weight: 700;
-    letter-spacing: 1px;
-    color: #fff !important;
+    font-weight: 800;
+    background: linear-gradient(45deg, #38bdf8, #818cf8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.theme-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    background: var(--theme-toggle-bg);
+    border: 1px solid var(--theme-toggle-border);
+    color: var(--theme-toggle-text);
+    font-weight: 600;
+    min-width: 96px;
+    justify-content: center;
+}
+
+.theme-toggle-btn:hover,
+.theme-toggle-btn:focus {
+    background: var(--bg-card);
+    border-color: var(--accent-blue);
+    color: var(--text-main);
+}
+
+#theme-label {
+    font-size: 0.8rem;
+    letter-spacing: 0.01em;
 }
 
 .card {
-    background-color: var(--card-bg);
-    border: 1px solid var(--border-color);
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    border-radius: 8px;
-    margin-bottom: 1.5rem;
-    transition: background-color 0.3s, border-color 0.3s;
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-main) !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
 .card-header {
-    background-color: rgba(0,0,0,0.05);
-    border-bottom: 1px solid var(--border-color);
-    font-weight: 600;
-}
-
-[data-bs-theme="dark"] .card-header {
-    background-color: rgba(255,255,255,0.05);
+    background: rgba(0, 0, 0, 0.02) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    color: var(--accent-blue) !important;
+    font-weight: 700;
 }
 
 .table {
-    --bs-table-bg: transparent;
-    --bs-table-color: var(--bs-body-color);
-    --bs-table-border-color: var(--border-color);
+    color: var(--text-main) !important;
 }
 
-.table-hover > tbody > tr:hover > * {
-    --bs-table-accent-bg: rgba(0,0,0,0.05);
-}
-
-[data-bs-theme="dark"] .table-hover > tbody > tr:hover > * {
-    --bs-table-accent-bg: rgba(255,255,255,0.05);
+.table thead th {
+    background-color: var(--table-header) !important;
+    color: var(--text-main) !important;
+    border-bottom: none;
 }
 
 .form-control, .form-select {
-    background-color: var(--card-bg);
-    border: 1px solid var(--border-color);
-    color: var(--bs-body-color);
+    background-color: var(--bg-card) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-main) !important;
 }
 
-.form-control:focus, .form-select:focus {
-    background-color: var(--card-bg);
-    border-color: var(--bs-primary);
-    color: var(--bs-body-color);
-    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+.form-control::placeholder {
+    color: var(--text-muted);
+}
+
+.text-muted {
+    color: var(--text-muted) !important;
 }
 
 .btn-primary {
-    background-color: #375a7f;
-    border-color: #375a7f;
+    background-color: var(--primary-color);
+    border: none;
 }
 
-.btn-primary:hover {
-    background-color: #2b4764;
-    border-color: #28415b;
+code {
+    background: #000;
+    color: #4ade80;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
 }
 
-footer {
-    margin-top: auto;
-    background-color: var(--nav-bg);
-    padding: 1.5rem 0;
-    font-size: 0.9rem;
-    color: #adb5bd;
+[data-bs-theme="light"] code {
+    background: #f1f5f9;
+    color: #166534;
+    border: 1px solid #cbd5e1;
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 10px;
+.stat-card {
+    transition: transform 0.2s;
 }
 
-::-webkit-scrollbar-track {
-  background: var(--bs-body-bg);
-}
-
-::-webkit-scrollbar-thumb {
-  background: #555;
-  border-radius: 5px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #888;
+.stat-card:hover {
+    transform: translateY(-4px);
 }

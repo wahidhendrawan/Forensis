@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2 class="fw-bold"><i class="fas fa-memory text-primary me-2"></i>Memory Triage</h2>
+        <p class="text-muted">Analyze raw memory output across structured and unstructured formats for suspicious indicators.</p>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body p-4">
+        <form method="post" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label class="form-label fw-bold">Upload Memory Tool Output</label>
+                <input type="file" name="memory_file" class="form-control" accept=".txt,.log,.json,.jsonl,.ndjson,.csv,.tsv,.xml,.yaml,.yml,.zip">
+                <div class="form-text">Supported formats: TXT, LOG, JSON, JSONL/NDJSON, CSV, TSV, XML, YAML, ZIP bundle.</div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-bold">Or Paste Raw Output</label>
+                <textarea name="raw_output" class="form-control" rows="10" placeholder="Paste Volatility / Rekall / EDR output here..."></textarea>
+            </div>
+            <div class="text-end">
+                <button type="submit" class="btn btn-primary">Analyze Output</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if parsed_output %}
+<div class="mt-5">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="fw-bold mb-0">Triage Results</h4>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-danger">{{ parsed_output.summary.suspicious_hits }} Suspicious Hits</span>
+            <div class="btn-group btn-group-sm">
+                <a href="{{ url_for('export_memory', fmt='json') }}" class="btn btn-outline-secondary">Export JSON</a>
+                <a href="{{ url_for('export_memory', fmt='csv') }}" class="btn btn-outline-secondary">Export CSV</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="small text-muted mb-3">
+        Detected format: <strong>{{ parsed_output.summary.detected_format }}</strong>
+        {% if parsed_output.summary.input_name %}
+        | Source file: <code>{{ parsed_output.summary.input_name }}</code>
+        {% endif %}
+        | Parsed records: <strong>{{ parsed_output.summary.parsed_records }}</strong>
+    </div>
+
+    {% if parsed_output.summary.severity_counts %}
+    <div class="mb-3 d-flex gap-2 flex-wrap">
+        {% for severity, count in parsed_output.summary.severity_counts.items() %}
+        <span class="badge {% if severity == 'critical' %}bg-danger{% elif severity == 'high' %}bg-warning text-dark{% elif severity == 'medium' %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+            {{ severity|upper }}: {{ count }}
+        </span>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if parsed_output.suspicious %}
+    <div class="card border-danger">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Indicator</th>
+                        <th>Category</th>
+                        <th>Severity</th>
+                        <th>Context Line</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for hit in parsed_output.suspicious %}
+                    <tr>
+                        <td><span class="badge bg-danger">{{ hit.keyword }}</span></td>
+                        <td class="small">{{ hit.category }}</td>
+                        <td>
+                            <span class="badge {% if hit.severity == 'critical' %}bg-danger{% elif hit.severity == 'high' %}bg-warning text-dark{% elif hit.severity == 'medium' %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+                                {{ hit.severity|upper }}
+                            </span>
+                        </td>
+                        <td class="font-monospace small text-break">{{ hit.line }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-success">No immediate suspicious patterns found in the provided output.</div>
+    {% endif %}
+
+    {% if parsed_output.summary.recommendations %}
+    <div class="card mt-3">
+        <div class="card-header bg-transparent fw-bold">Recommended Follow-up Actions</div>
+        <div class="card-body">
+            <ul class="mb-0">
+                {% for recommendation in parsed_output.summary.recommendations %}
+                <li>{{ recommendation }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

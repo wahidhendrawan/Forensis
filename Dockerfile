@@ -6,9 +6,10 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install system dependencies (if needed, can be extended)
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./

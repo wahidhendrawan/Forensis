@@ -1,164 +1,154 @@
 {% extends "base.html" %}
+
 {% block content %}
-<div class="row mb-3">
-  <div class="col-12">
-    <h2>Memory Forensics Helper</h2>
-    <p class="text-muted">
-      Generate a memory analysis playbook (Volatility-focused) or upload/paste existing output to triage quickly.
-    </p>
-  </div>
+<div class="row mb-4">
+    <div class="col-12">
+        <h2 class="fw-bold"><i class="fas fa-toolbox text-primary me-2"></i>Forensics Helper</h2>
+        <p class="text-muted">Plan generator and operational cheatsheets for incident response.</p>
+    </div>
 </div>
 
-<ul class="nav nav-tabs mb-3" id="memTab" role="tablist">
-  <li class="nav-item" role="presentation">
-    <button class="nav-link {% if not parsed_output %}active{% endif %}" id="playbook-tab" data-bs-toggle="tab" data-bs-target="#playbook" type="button" role="tab">
-      Generate Playbook
-    </button>
-  </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link {% if parsed_output %}active{% endif %}" id="triage-tab" data-bs-toggle="tab" data-bs-target="#triage" type="button" role="tab">
-      Triage Output
-    </button>
-  </li>
+<ul class="nav nav-pills mb-4" id="helperTabs" role="tablist">
+    <li class="nav-item">
+        <button class="nav-link {% if active_tab == 'generate' %}active{% endif %}" id="gen-tab" data-bs-toggle="pill" data-bs-target="#generate" type="button">Plan Generator</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link {% if active_tab == 'cheatsheets' %}active{% endif %}" id="cheatsheet-tab" data-bs-toggle="pill" data-bs-target="#cheatsheets" type="button">Cheatsheets</button>
+    </li>
 </ul>
 
 <div class="tab-content">
-  <div class="tab-pane fade {% if not parsed_output %}show active{% endif %}" id="playbook" role="tabpanel" aria-labelledby="playbook-tab">
-    <form method="post" class="mb-4">
-      <input type="hidden" name="mode" value="playbook">
-      <div class="row g-3">
-        <div class="col-md-4">
-          <label class="form-label">Profile</label>
-          <select name="profile" class="form-select">
-            <option value="windows.generic">Windows (generic)</option>
-            <option value="linux.generic">Linux (generic)</option>
-          </select>
+    <div class="tab-pane fade {% if active_tab == 'generate' %}show active{% endif %}" id="generate">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <form method="post">
+                    <input type="hidden" name="mode" value="playbook">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Investigation Category</label>
+                            <select name="category" class="form-select" id="categorySelect">
+                                <option value="memory">Memory Analysis</option>
+                                <option value="network">Network Intrusion</option>
+                                <option value="logs">Web Log Forensics</option>
+                            </select>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label fw-bold">Analysis Profile</label>
+                            <select name="profile" class="form-select" id="profileSelect"></select>
+                        </div>
+                        <div class="col-md-3 d-flex align-items-end">
+                            <button type="submit" class="btn btn-primary w-100">Generate Plan</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
         </div>
-        <div class="col-md-8">
-          <label class="form-label">Focus Areas</label>
-          <div class="d-flex flex-wrap gap-3">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="focus" value="processes" id="focusProc" checked>
-              <label class="form-check-label" for="focusProc">Processes</label>
-            </div>
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="focus" value="network" id="focusNet" checked>
-              <label class="form-check-label" for="focusNet">Network</label>
-            </div>
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="focus" value="persistence" id="focusPers" checked>
-              <label class="form-check-label" for="focusPers">Persistence</label>
-            </div>
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="focus" value="malware" id="focusMal">
-              <label class="form-check-label" for="focusMal">Malware / Injected Code</label>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="mt-3 d-flex gap-2">
-        <button class="btn btn-primary">Generate Playbook</button>
-      </div>
-    </form>
+    </div>
 
-    {% if playbook %}
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h5 class="mb-0">Playbook ({{ playbook.profile }})</h5>
-        <div class="btn-group btn-group-sm" role="group" aria-label="Export memory playbook">
-          <a href="{{ url_for('export_memory', fmt='json') }}" class="btn btn-outline-secondary">Export JSON</a>
-          <a href="{{ url_for('export_memory', fmt='csv') }}" class="btn btn-outline-secondary">Export CSV</a>
-        </div>
-      </div>
-
-      <div class="card shadow-sm mb-4">
-        <div class="card-body">
-          <p class="text-muted small mb-3">Tool: {{ playbook.tool }}</p>
-          <ol class="small">
-            {% for step in playbook.steps %}
-              <li class="mb-2">
-                <strong>{{ step.focus|capitalize }}</strong> &mdash; {{ step.description }}
-                <pre class="mt-1 mb-0"><code>{% for cmd in step.commands %}{{ cmd }}{% if not loop.last %}\n{% endif %}{% endfor %}</code></pre>
-              </li>
+    <div class="tab-pane fade {% if active_tab == 'cheatsheets' %}show active{% endif %}" id="cheatsheets">
+        <div class="row row-cols-1 row-cols-md-2 g-4">
+            {% for category, commands in helper_sheets.items() %}
+            <div class="col">
+                <div class="card h-100 shadow-sm border-0 bg-dark bg-opacity-50">
+                    <div class="card-header border-0 bg-transparent pt-4 px-4">
+                        <h5 class="fw-bold text-info"><i class="fas fa-terminal me-2"></i>{{ category }}</h5>
+                    </div>
+                    <div class="card-body px-4 pb-4">
+                        <div class="list-group list-group-flush bg-transparent">
+                            {% for item in commands %}
+                            <div class="list-group-item bg-transparent border-0 px-0 mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="small fw-bold text-light opacity-75">{{ item.desc }}</span>
+                                    <button class="btn btn-sm btn-link text-info p-0 copy-btn" data-clipboard="{{ item.cmd }}" title="Copy to clipboard">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </div>
+                                <code class="d-block w-100 p-3 rounded bg-black text-success border border-secondary border-opacity-25" style="font-size: 0.85rem;">
+                                    {{ item.cmd }}
+                                </code>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
             {% endfor %}
-          </ol>
         </div>
-      </div>
-    {% endif %}
-  </div>
-
-  <div class="tab-pane fade {% if parsed_output %}show active{% endif %}" id="triage" role="tabpanel" aria-labelledby="triage-tab">
-    <form method="post" enctype="multipart/form-data" class="mb-4">
-      <input type="hidden" name="mode" value="triage">
-      <div class="mb-3">
-        <label class="form-label">Upload Output File</label>
-        <input type="file" name="memory_file" class="form-control" accept=".txt,.log,.out">
-      </div>
-      <div class="mb-3">
-        <label class="form-label">Or Paste Output</label>
-        <textarea name="raw_output" rows="10" class="form-control" placeholder="Paste Volatility / Rekall output here for quick triage..."></textarea>
-      </div>
-      <button class="btn btn-primary">Analyze Output</button>
-    </form>
-
-    {% if parsed_output %}
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h5 class="mb-0">Summary</h5>
-        <div class="btn-group btn-group-sm" role="group" aria-label="Export memory triage">
-          <a href="{{ url_for('export_memory', fmt='json') }}" class="btn btn-outline-secondary">Export JSON</a>
-          <a href="{{ url_for('export_memory', fmt='csv') }}" class="btn btn-outline-secondary">Export CSV</a>
-        </div>
-      </div>
-
-      <div class="card shadow-sm mb-4">
-        <div class="card-body">
-          <ul class="list-unstyled small">
-            <li>Total lines: <strong>{{ parsed_output.summary.total_lines }}</strong></li>
-            <li>Suspicious hits: <strong>{{ parsed_output.summary.suspicious_hits }}</strong></li>
-          </ul>
-        </div>
-      </div>
-
-      <h5 class="mb-2">Suspicious Indicators</h5>
-      {% if parsed_output.get("suspicious") %}
-        <ul class="list-group list-group-flush small mb-4">
-          {% for hit in parsed_output.suspicious %}
-            <li class="list-group-item">
-              <strong>{{ hit.keyword }}</strong><br>
-              <code class="d-block text-truncate">{{ hit.line }}</code>
-            </li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <p class="text-muted">No suspicious keywords detected (based on current heuristics).</p>
-      {% endif %}
-    {% endif %}
-  </div>
+    </div>
 </div>
 
-{% if sigma_matches %}
-  <div class="accordion mb-4" id="accordionMemSigma">
-    <div class="accordion-item">
-      <h2 class="accordion-header" id="headingMemSigma">
-        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseMemSigma">
-          Sigma Rule Correlation
-        </button>
-      </h2>
-      <div id="collapseMemSigma" class="accordion-collapse collapse show">
-        <div class="accordion-body">
-          <ul class="list-group list-group-flush small">
-            {% for m in sigma_matches %}
-              <li class="list-group-item">
-                <div><strong>{{ m.rule_title }}</strong> <span class="badge bg-danger text-uppercase">{{ m.rule_level }}</span></div>
-                <div class="text-muted small mb-1">{{ m.description }}</div>
-                <code class="d-block text-truncate">{{ m.event.message }}</code>
-              </li>
-            {% else %}
-              <li class="list-group-item text-muted">No Sigma rule matches for these memory events.</li>
-            {% endfor %}
-          </ul>
+{% if playbook %}
+<div class="mt-5">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="fw-bold mb-0">Recommended Playbook: <span class="text-info">{{ playbook.profile }}</span></h4>
+        <div class="btn-group btn-group-sm">
+            <a href="{{ url_for('export_memory', fmt='json') }}" class="btn btn-outline-secondary">Export JSON</a>
+            <a href="{{ url_for('export_memory', fmt='csv') }}" class="btn btn-outline-secondary">Export CSV</a>
         </div>
-      </div>
     </div>
-  </div>
+    <div class="row g-4">
+        {% for step in playbook.steps %}
+        <div class="col-md-6">
+            <div class="card h-100 border-start border-4 border-info">
+                <div class="card-body">
+                    <h6 class="text-uppercase text-muted small fw-bold mb-3">{{ step.focus }}</h6>
+                    {% for cmd in step.commands %}
+                    <div class="mb-2">
+                        <code class="d-block p-2 bg-black text-info small">{{ cmd }}</code>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
 {% endif %}
+
+<script>
+    const profiles = {
+        "memory": [
+            {val: "windows.generic", label: "Windows Generic (x64)"},
+            {val: "windows.enterprise.ir", label: "Windows Enterprise IR"},
+            {val: "linux.generic", label: "Linux Generic (x64)"},
+            {val: "macos.quicktriage", label: "macOS Quick Triage"}
+        ],
+        "network": [
+            {val: "intrusion_detection", label: "General Intrusion Detection"}
+        ],
+        "logs": [
+            {val: "web_attack", label: "Web Server Attack Analysis"}
+        ]
+    };
+
+    const catSelect = document.getElementById("categorySelect");
+    const profSelect = document.getElementById("profileSelect");
+
+    function updateProfiles() {
+        const cat = catSelect.value;
+        profSelect.innerHTML = "";
+        (profiles[cat] || []).forEach(p => {
+            const opt = document.createElement("option");
+            opt.value = p.val;
+            opt.textContent = p.label;
+            profSelect.appendChild(opt);
+        });
+    }
+
+    if (catSelect && profSelect) {
+        catSelect.addEventListener("change", updateProfiles);
+        updateProfiles();
+    }
+
+    document.querySelectorAll(".copy-btn").forEach(btn => {
+        btn.addEventListener("click", function() {
+            const cmd = this.getAttribute("data-clipboard");
+            navigator.clipboard.writeText(cmd).then(() => {
+                const icon = this.querySelector("i");
+                icon.className = "fas fa-check text-success";
+                setTimeout(() => { icon.className = "fas fa-copy"; }, 1600);
+            });
+        });
+    });
+</script>
 {% endblock %}

@@ -1,216 +1,142 @@
-Here’s the cleaned‑up, conflict‑free README — it merges both versions, removes all markers, and keeps all essential information:
+# Forensis
 
----
+Forensis is an open-source web platform for threat analysis and digital forensics operations.
+It provides a unified workflow for log analysis, network packet inspection, memory triage,
+Sigma correlation, and secure user administration.
 
-# Forensis - Forensics & Analysis
+## Key Capabilities
 
-**Forensis** is a modern, enterprise‑ready web platform designed for **forensics and threat analysis workflows**. It combines advanced log parsing, network traffic analysis, memory forensics triage, and Sigma rule correlation into a unified, secure dashboard.
-
-[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
-[![Flask](https://img.shields.io/badge/flask-2.3+-lightgrey)](https://flask.palletsprojects.com/)
-[![License](https://img.shields.io/badge/license-Free%20use-green)](#license)
-
----
-
-## 🔍 Key Features
-
-### 1. Log Parser & Analyzer
-Parse and analyze diverse log formats with heuristic anomaly detection and automated Sigma rule correlation.
-
-- **Supported Formats:**
-  - Apache / Web Server Logs
-  - Syslog
-  - CSV Files (generic or custom exports)
-  - Elastic Stack (JSON exports)
-  - Splunk (JSON/CSV exports)
-- **Detection:**
-  - HTTP status anomalies (4xx/5xx spikes)
-  - Suspicious keywords (`failed password`, `mimikatz`, `sql injection`, etc.)
-  - Real‑time Sigma rule matching
+### 1. Log Parser and Analyzer
+- Parse Apache, Syslog, CSV, JSON, Elastic-like, and Splunk-like log inputs.
+- Detect anomalies from suspicious patterns and status behavior.
+- Correlate parsed events with Sigma rules.
+- Export results to JSON and CSV.
 
 ### 2. Network Traffic Analyzer
-Analyze **PCAP / PCAPNG** files to identify suspicious flows and beaconing behavior.
+- Analyze PCAP and PCAPNG files.
+- Build flow summaries (source, destination, ports, protocol, bytes, packets, duration).
+- Highlight suspicious communication patterns.
+- Run Sigma correlation against network events.
+- Export results to JSON and CSV.
 
-- **Capabilities:**
-  - Flow extraction: `src`, `dst`, `ports`, `proto`, `bytes`, `duration`, `avg_payload`
-  - Detection of C2 beaconing patterns and suspicious remote access ports
-  - **Sortable Results:** Interactively sort flows by size, packets, or payload
-  - Sigma rule correlation for network events
+### 3. Memory Triage
+- Dedicated triage page separate from Helper.
+- Accept raw paste or uploads in: TXT, LOG, JSON, NDJSON/JSONL, CSV, TSV, XML, YAML, ZIP.
+- Parse mixed memory tool output and surface suspicious indicators with severity.
+- Provide follow-up recommendations and export to JSON/CSV.
 
-### 3. Memory Forensics Helper
-Assist with memory analysis workflows and automate command generation for **Volatility 3**.
+### 4. Forensics Helper
+- Plan Generator for memory, network, and log investigation playbooks.
+- Operational Cheatsheets for common DFIR commands.
+- Optimized for fast triage handoff and repeatable analyst workflow.
 
-- **Playbook Generator:** Creates recommended command chains based on selected profiles (Windows/Linux) and focus areas (Malware, Persistence).
-- **Triage Mode:** Parses raw output logs to highlight suspicious processes and artifacts.
-- **File Upload:** Upload raw memory analysis logs for instant parsing.
+### 5. Sigma Engine and Rule Management
+- Local Sigma rule correlation for logs and network artifacts.
+- Dashboard actions to sync Sigma rules from remote URLs.
+- Rule reload support without restarting the full stack.
 
-### 4. Enterprise-Grade Security & Management
-Built for teams with secure access controls and audit capabilities.
+### 6. Users and Administration
+- Role-based access control (Admin and Analyst).
+- User CRUD and group administration.
+- Built-in MFA (TOTP) setup, disable, and reset flows.
+- Dedicated Users and Security area for account governance.
 
-- **Multi-Factor Authentication (MFA):** Secure user accounts with TOTP (Google Authenticator, Authy).
-- **Role-Based Access Control (RBAC):**
-  - **Admin:** Manage users, groups, and global settings.
-  - **Analyst:** Perform analyses and view history.
-- **User Management:** Create, delete, and group users via a dedicated interface.
+### 7. History and Reporting
+- Persist analysis history for logs, network, memory playbooks, and memory triage.
+- View, delete, and review previous sessions.
+- Export report bundle from current in-memory result set.
 
-### 5. Persistent History & Dashboard
-Never lose your work. All analysis results are stored securely.
+## Stack
+- Flask
+- SQLAlchemy (SQLite default)
+- Flask-Login and Flask-Bcrypt
+- PyOTP (MFA)
+- Celery + Redis (async processing)
+- Bootstrap 5 frontend
 
-- **Analysis History:** Review past log, network, and memory analysis sessions.
-- **Persistent Dashboard:** Visualize trends over time (not just the last session).
-- **Metrics:** Track total events, anomalies, and threat alerts across the organization.
-- **Admin Tools:** Granularly delete history records or perform a full system reset.
+## Quick Start
 
-### 6. Sigma Correlation Engine
-Lightweight YAML‑based engine for detecting threats across all modules.
+### Docker (recommended)
+1. Ensure Docker and Docker Compose are installed.
+2. Create or edit `.env` in project root:
 
-- **Predefined Rules:** Ships with rules for Web Shells, PowerShell abuse, Mimikatz, and Network Beaconing.
-- **Live Sync:** Update rules dynamically from remote Git repositories (e.g., SigmaHQ).
-- **Management:** Reload local rules or sync from URLs directly from the dashboard.
+```env
+FORENSIS_SECRET_KEY=replace_with_strong_secret
+FORENSIS_ADMIN_USER=admin
+FORENSIS_ADMIN_PASSWORD=forensis123
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/0
+```
 
----
+3. Build and run:
 
-## 🚀 Getting Started
+```bash
+docker compose up -d --build
+```
 
-### Prerequisites
-- **Python 3.10+**
-- **Docker & Docker Compose** (recommended for production)
+4. Open:
+- `http://localhost:5000`
 
----
+Default credentials (if unchanged):
+- Username: `admin`
+- Password: `forensis123`
 
-### 🐳 Docker Deployment (Recommended)
+### Local run
+1. Create virtual environment and install dependencies:
 
-Forensis is pre‑configured with Docker Compose for a production‑ready setup including persistent storage.
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
 
-1. **Configure Environment:**
-   ```bash
-   cp .env.example .env
-   # Edit .env to set your FORENSIS_SECRET_KEY and Admin credentials
-   ```
+2. Start app:
 
-2. **Build and Run:**
-   ```bash
-   docker-compose up -d --build
-   ```
+```bash
+python app.py
+```
 
-3. **Access:**
-   Open **http://localhost:5000**
+3. Open:
+- `http://127.0.0.1:5000`
 
-   > **Default admin credentials:**  
-   > **Username:** `admin`  
-   > **Password:** `forensis123`  
-   > ⚠️ **Change immediately after first login!**
+## Main Routes
+- `/dashboard`
+- `/log-analyzer`
+- `/network-analyzer`
+- `/memory-triage`
+- `/helper`
+- `/history`
+- `/users`
 
----
+## Project Structure
 
-### 🧰 Manual Installation
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/wahidhendrawan/Forensis.git
-   cd Forensis
-   ```
-
-2. **Create and activate a virtual environment:**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate      # Linux / macOS
-   venv\Scripts\activate         # Windows
-   ```
-
-3. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Run the application:**
-   ```bash
-   python app.py
-   ```
-   The SQLite database is automatically initialized on first run.
-
-5. **Access:**
-   Open **http://127.0.0.1:5000**
-
----
-
-## 📁 Project Structure
-
-```plaintext
+```text
 Forensis/
-├── app.py                      # Main application logic & routes
+├── app.py
 ├── forensis/
-│   ├── models.py               # Database models (User, History, Group)
-│   ├── analyzers/              # Analysis engines
+│   ├── models.py
+│   ├── analyzers/
 │   │   ├── log_analyzer.py
 │   │   ├── network_analyzer.py
-│   │   ├── memory_analyzer.py
-│   │   └── sigma_analyzer.py
-│   └── integrations/           # External exports
-│       ├── elk_exporter.py
-│       └── loki_exporter.py
-├── sigma_rules/                # YAML detection rules
-│   ├── web_error_spike.yml
-│   ├── susp_powershell.yml
-│   └── ...
-├── templates/                  # HTML templates (Bootstrap 5)
-│   ├── dashboard.html
-│   ├── manage_users.html
-│   ├── setup_mfa.html
-│   └── ...
+│   │   ├── playbook_engine.py
+│   │   └── sigma_engine.py
+│   └── integrations/
+│       └── elk_loki.py
+├── templates/
 ├── static/
-│   ├── styles.css              # Dark/Light theme styles
-│   └── main.js                 # UI interactions
-├── instance/                   # SQLite database storage
+├── sigma_rules/
+├── instance/
+├── uploads/
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt
 ```
 
----
+## Security Notes
+- Change default admin credentials immediately.
+- Use a strong `FORENSIS_SECRET_KEY`.
+- Enable MFA for privileged users.
+- Review uploaded artifact handling and storage policy before production use.
 
-## 🔐 Security Features
-
-- **Authentication** – Database‑backed with Flask‑Login and Bcrypt password hashing.  
-- **Multi‑Factor Authentication (MFA)** – TOTP support using `pyotp`.  
-- **Session Management** – Secure cookies with administrative timeouts.  
-- **Input Validation** – Strict file type validation and secure filename handling.
-
----
-
-## 🎨 Customization
-
-### 🌓 Theme Toggle
-Switch between **Light** and **Dark** modes instantly via the navigation bar.
-
-### ⚙️ Configuration via `.env`
-Create a `.env` file in the root directory to override defaults:
-
-```env
-FORENSIS_SECRET_KEY=your_secret_key
-FORENSIS_ADMIN_USER=custom_admin
-FORENSIS_ADMIN_PASSWORD=strong_password
-FORENSIS_SIGMA_URLS=https://custom.sigma.repo/rules.zip
-```
-
----
-
-## 🪪 License
-
-**Free to use and modify** for research, learning, or internal lab environments.  
-No warranty is provided — use responsibly.
-
----
-
-## 🤝 Contributing
-
-Contributions, issues, and feature requests are welcome!  
-Feel free to open an issue or submit a pull request.
-
----
-
-## 📌 Acknowledgements
-
-- [Sigma](https://github.com/SigmaHQ/sigma) – Generic signature format for SIEM systems  
-- [Flask](https://flask.palletsprojects.com/) – Web framework  
-- [Bootstrap 5](https://getbootstrap.com/) – UI components
+## License
+See [LICENSE](LICENSE).

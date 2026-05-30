@@ -12,32 +12,14 @@ except ImportError:
     requests = None  # type: ignore
 
 
-PRIVATE_IP_BLOCKS = [
-    ("127.0.0.0", "127.255.255.255"),
-    ("10.0.0.0", "10.255.255.255"),
-    ("172.16.0.0", "172.31.255.255"),
-    ("192.168.0.0", "192.168.255.255"),
-    ("169.254.0.0", "169.254.255.255"),
-    ("::1", "::1"),
-    ("fc00::", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
-    ("fe80::", "febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
-]
-
-
-def _ip_to_int(ip: str) -> int:
-    parts = ip.split(".")
-    return (int(parts[0]) << 24) + (int(parts[1]) << 16) + (int(parts[2]) << 8) + int(parts[3])
-
+import ipaddress
 
 def _is_private_ip(ip_str: str) -> bool:
     try:
-        addr = _ip_to_int(ip_str)
-        for start, end in PRIVATE_IP_BLOCKS[:6]:
-            if _ip_to_int(start) <= addr <= _ip_to_int(end):
-                return True
-    except (IndexError, ValueError):
-        pass
-    return False
+        ip = ipaddress.ip_address(ip_str)
+        return ip.is_private or ip.is_loopback or ip.is_link_local
+    except ValueError:
+        return False
 
 
 def _is_safe_url(url: str) -> bool:

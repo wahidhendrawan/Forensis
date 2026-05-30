@@ -50,7 +50,8 @@
                             <code>{{ analysis.filename or 'N/A' }}</code>
                         </td>
                         <td>
-                            <i class="fas fa-user-circle me-1 text-secondary"></i> {{ analysis.user.username }}
+                            <i class="fas fa-user-circle me-1 text-secondary"></i>
+                            {{ analysis.user.username if analysis.user else 'Unknown' }}
                         </td>
                         <td class="text-end pe-4">
                             <div class="btn-group btn-group-sm">
