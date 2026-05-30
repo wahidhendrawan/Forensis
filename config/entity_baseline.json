@@ -1,0 +1,33 @@
+{
+  "known_ports": [
+    22,
+    53,
+    80,
+    123,
+    135,
+    139,
+    443,
+    445,
+    3389,
+    5985,
+    5986
+  ],
+  "known_protocols": [
+    "TCP",
+    "UDP",
+    "ICMP"
+  ],
+  "trusted_processes": [
+    "systemd",
+    "sshd",
+    "cron",
+    "nginx",
+    "apache2",
+    "svchost.exe",
+    "lsass.exe",
+    "explorer.exe"
+  ],
+  "trusted_hosts": [
+    "localhost"
+  ]
+}

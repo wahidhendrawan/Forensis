@@ -30,6 +30,7 @@
                     <div class="text-end">
                         {% if current_user.mfa_enabled %}
                         <form method="POST" action="{{ url_for('disable_mfa') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <button class="btn btn-outline-danger btn-sm" type="submit" onclick="return confirm('Disable MFA for your account?')">
                                 <i class="fas fa-unlock me-1"></i> Disable MFA
                             </button>
@@ -67,6 +68,7 @@
             </div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('create_user') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <div class="mb-3">
                         <label class="form-label small fw-bold">Username</label>
                         <input type="text" name="username" class="form-control form-control-sm" required>
@@ -104,6 +106,7 @@
             </div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('add_group') }}" class="mb-4">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <label class="form-label small fw-bold">Create New Group</label>
                     <div class="input-group input-group-sm">
                         <input type="text" name="name" class="form-control" required placeholder="e.g. DFIR-Team">
@@ -128,6 +131,7 @@
                                     <span class="fw-bold">{{ group.name }}</span>
                                     {% else %}
                                     <form method="POST" action="{{ url_for('update_group', group_id=group.id) }}" class="d-flex gap-2">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                         <input type="text" name="name" class="form-control form-control-sm" value="{{ group.name }}" required>
                                         <button class="btn btn-outline-primary btn-sm" type="submit">Update</button>
                                     </form>
@@ -137,6 +141,7 @@
                                 <td class="text-end">
                                     {% if group.name != 'Administrators' %}
                                     <form method="POST" action="{{ url_for('delete_group', group_id=group.id) }}" class="d-inline">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                         <button class="btn btn-outline-danger btn-sm" type="submit" onclick="return confirm('Delete group {{ group.name }}?')">
                                             Delete
                                         </button>
@@ -184,7 +189,9 @@
                                 {% if is_admin %}
                                     <td class="ps-4 fw-bold">
                                         {{ user.id }}
-                                        <form id="update-user-{{ user.id }}" method="POST" action="{{ url_for('update_user', user_id=user.id) }}"></form>
+                                        <form id="update-user-{{ user.id }}" method="POST" action="{{ url_for('update_user', user_id=user.id) }}">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                        </form>
                                     </td>
                                     <td>
                                         <input type="text" name="username" class="form-control form-control-sm" value="{{ user.username }}" required form="update-user-{{ user.id }}">

@@ -1,0 +1,17 @@
+title: Baseline LSASS Dump Tooling Keyword
+id: forensis-baseline-memory-002
+status: experimental
+description: Detects LSASS process dump markers associated with credential dumping activity.
+author: Forensis
+date: 2026-05-30
+logsource:
+  category: memory
+detection:
+  selection:
+    message|contains:
+      - "*lsass*"
+      - "*procdump*"
+      - "*comsvcs.dll*"
+      - "*rundll32* MiniDump*"
+  condition: selection
+level: high

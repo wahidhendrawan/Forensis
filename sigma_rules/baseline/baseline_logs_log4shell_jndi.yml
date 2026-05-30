@@ -1,0 +1,17 @@
+title: Baseline Log4Shell JNDI Artifact
+id: forensis-baseline-logs-002
+status: experimental
+description: Flags JNDI lookup payload fragments commonly seen in Log4Shell exploitation attempts.
+author: Forensis
+date: 2026-05-30
+logsource:
+  category: web
+detection:
+  selection:
+    message|contains:
+      - "*${jndi:ldap://*"
+      - "*${jndi:ldaps://*"
+      - "*${jndi:rmi://*"
+      - "*${jndi:dns://*"
+  condition: selection
+level: critical

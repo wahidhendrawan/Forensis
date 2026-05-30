@@ -4,13 +4,14 @@
 <div class="row mb-3">
     <div class="col-12">
         <h2>Log Parser & Analyzer</h2>
-        <p class="text-muted">Analyze logs (Apache, Syslog, CSV, Elastic, Splunk) for anomalies and correlate with Sigma rules.</p>
+        <p class="text-muted">Analyze logs (Apache, Syslog, CSV, Elastic, Splunk) with multi-engine detection (Sigma, YARA, Threat Intel, baseline).</p>
     </div>
 </div>
 
 <div class="card shadow-sm mb-4">
     <div class="card-body">
         <form method="post" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="row g-3">
                 <div class="col-md-3">
                     <label class="form-label">Log Type</label>
@@ -108,6 +109,51 @@
 </div>
 {% endif %}
 
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card text-center h-100 shadow-sm">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase small mb-2">Threat Intel</h6>
+                <h4 class="fw-bold mb-1">{{ results.summary.threat_intel_hits|default(0) }}</h4>
+                <small class="text-muted">Score: {{ results.summary.threat_intel_score|default(0) }}</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center h-100 shadow-sm">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase small mb-2">YARA Hits</h6>
+                <h4 class="fw-bold mb-1">{{ results.summary.yara_hits|default(0) }}</h4>
+                <small class="text-muted">
+                    {% if results.summary.yara_engine_available %}
+                    Loaded files: {{ results.summary.yara_loaded_rule_files|default(0) }}
+                    {% else %}
+                    Engine unavailable
+                    {% endif %}
+                </small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center h-100 shadow-sm">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase small mb-2">Baseline Drift</h6>
+                <h4 class="fw-bold mb-1">{{ results.summary.baseline_deviation_hits|default(0) }}</h4>
+                <small class="text-muted">Deviation findings</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center h-100 shadow-sm">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase small mb-2">Allowlist</h6>
+                <h4 class="fw-bold mb-1">{{ results.summary.allowlist_suppressed|default(0) }}</h4>
+                <small class="text-muted">Suppressed noise</small>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% if sigma_matches %}
 <div class="card border-danger mb-4">
     <div class="card-header bg-danger text-white">Sigma Rule Matches</div>
@@ -136,6 +182,9 @@
             <table class="table table-striped mb-0 small">
                 <thead>
                     <tr>
+                        <th>Severity</th>
+                        <th>Category</th>
+                        <th>Indicator</th>
                         <th>Reason</th>
                         <th>Event Detail</th>
                     </tr>
@@ -143,8 +192,15 @@
                 <tbody>
                     {% for anomaly in results.anomalies %}
                     <tr>
+                        <td>
+                            <span class="badge {% if anomaly.severity == 'critical' %}bg-danger{% elif anomaly.severity == 'high' %}bg-warning text-dark{% elif anomaly.severity == 'medium' %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+                                {{ (anomaly.severity or 'low')|upper }}
+                            </span>
+                        </td>
+                        <td>{{ anomaly.category or '-' }}</td>
+                        <td>{{ anomaly.indicator or '-' }}</td>
                         <td class="fw-bold">{{ anomaly.reason }}</td>
-                        <td><code>{{ anomaly.event.raw }}</code></td>
+                        <td><code>{{ anomaly.event.raw or anomaly.event.message or anomaly.event.source or '-' }}</code></td>
                     </tr>
                     {% endfor %}
                 </tbody>

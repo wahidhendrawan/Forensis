@@ -1,0 +1,48 @@
+{
+  "logs_benign": {
+    "max": {
+      "threat_score": 6,
+      "malicious_pattern_hits": 4
+    }
+  },
+  "logs_malicious": {
+    "min": {
+      "threat_score": 12,
+      "malicious_pattern_hits": 4,
+      "threat_intel_hits": 1,
+      "yara_hits": 1
+    }
+  },
+  "network_benign": {
+    "max": {
+      "threat_score": 6,
+      "malicious_pattern_hits": 4
+    }
+  },
+  "network_malicious": {
+    "min": {
+      "threat_score": 10,
+      "malicious_pattern_hits": 2,
+      "threat_intel_hits": 2,
+      "yara_hits": 1
+    }
+  },
+  "memory_benign": {
+    "max": {
+      "threat_score": 6,
+      "malicious_pattern_hits": 4
+    }
+  },
+  "memory_malicious": {
+    "min": {
+      "threat_score": 10,
+      "malicious_pattern_hits": 3,
+      "yara_hits": 1
+    }
+  },
+  "cross_source": {
+    "min": {
+      "findings": 1
+    }
+  }
+}

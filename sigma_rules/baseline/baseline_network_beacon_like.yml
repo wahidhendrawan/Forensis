@@ -1,0 +1,17 @@
+title: Baseline Beacon-Like Low Payload Flow
+id: forensis-baseline-network-002
+status: experimental
+description: Flags long-running, repetitive, low-payload traffic patterns often seen in beaconing channels.
+author: Forensis
+date: 2026-05-30
+logsource:
+  category: network
+detection:
+  selection_duration:
+    duration|gte: 30
+  selection_packets:
+    packets|gte: 80
+  selection_payload:
+    avg_payload|lte: 120
+  condition: selection_duration and selection_packets and selection_payload
+level: medium

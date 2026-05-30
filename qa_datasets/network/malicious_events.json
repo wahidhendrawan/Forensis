@@ -1,0 +1,32 @@
+[
+  {
+    "source": "pcap_flow",
+    "src_ip": "203.0.113.77",
+    "dst_ip": "45.95.147.42",
+    "src_port": 49822,
+    "dst_port": 4444,
+    "proto": "TCP",
+    "packets": 140,
+    "bytes": 94000,
+    "duration": 91.5,
+    "first_seen": "2026-05-30T12:15:00+00:00",
+    "last_seen": "2026-05-30T12:16:31+00:00",
+    "host": "node01.badc2.example",
+    "raw": "beacon callback node01.badc2.example 45.95.147.42:4444"
+  },
+  {
+    "source": "pcap_flow",
+    "src_ip": "203.0.113.77",
+    "dst_ip": "103.27.202.88",
+    "src_port": 49824,
+    "dst_port": 9001,
+    "proto": "TCP",
+    "packets": 96,
+    "bytes": 65200,
+    "duration": 58.8,
+    "first_seen": "2026-05-30T12:16:41+00:00",
+    "last_seen": "2026-05-30T12:17:39+00:00",
+    "host": "pastebin-malware.example",
+    "raw": "suspicious encrypted tunnel to pastebin-malware.example"
+  }
+]

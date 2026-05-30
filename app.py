@@ -36,6 +36,11 @@ from forensis.analyzers.log_analyzer import analyze_logs
 from forensis.analyzers.network_analyzer import analyze_pcap
 from forensis.analyzers.playbook_engine import get_playbook, analyze_generic_output
 from forensis.analyzers.sigma_engine import SigmaEngine
+from forensis.analyzers.yara_engine import YaraEngine
+from forensis.analyzers.threat_intel import ThreatIntelEngine
+from forensis.analyzers.entity_profile import EntityProfileEngine
+from forensis.analyzers.detection_pipeline import enrich_analysis_results
+from forensis.analyzers.correlation_engine import correlate_recent_analyses
 from forensis.integrations.elk_loki import ship_events
 
 load_dotenv()
@@ -44,6 +49,9 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 DB_PATH = os.path.join(BASE_DIR, "instance", "forensis.db")
+YARA_RULES_DIR = os.path.join(BASE_DIR, "yara_rules")
+THREAT_INTEL_DIR = os.path.join(BASE_DIR, "threat_intel")
+ENTITY_CONFIG_DIR = os.path.join(BASE_DIR, "config")
 
 ALLOWED_LOG_EXT = {"log", "txt", "csv", "json"}
 ALLOWED_PCAP_EXT = {"pcap", "pcapng"}
@@ -107,6 +115,9 @@ LAST_RESULTS = {
 }
 
 sigma_engine = SigmaEngine(os.path.join(BASE_DIR, "sigma_rules"))
+yara_engine = YaraEngine(YARA_RULES_DIR)
+entity_profile_engine = EntityProfileEngine(ENTITY_CONFIG_DIR)
+threat_intel_engine = ThreatIntelEngine(THREAT_INTEL_DIR, allowlist_engine=entity_profile_engine)
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -335,6 +346,8 @@ def setup_mfa():
         return redirect(url_for("manage_users"))
 
     if request.method == "POST":
+        if not _require_csrf():
+            return _safe_redirect(request.referrer, "manage_users")
         secret = request.form.get("secret")
         otp = request.form.get("otp")
         qr_code = request.form.get("qr_code_hidden")
@@ -387,9 +400,10 @@ def dashboard():
         },
         "memory": {"suspicious": memory_count},
         "counts": {"logs": logs_count, "network": network_count, "memory": memory_count},
-        "recent_alerts": []
+        "recent_alerts": [],
+        "cross_source": {"findings": [], "count": 0, "severity_counts": {}},
     }
-    recent_analyses = AnalysisHistory.query.order_by(AnalysisHistory.timestamp.desc()).limit(10).all()
+    recent_analyses = AnalysisHistory.query.order_by(AnalysisHistory.timestamp.desc()).limit(40).all()
     alerts = []
     for a in recent_analyses:
         res = a.get_results()
@@ -397,6 +411,10 @@ def dashboard():
              for anomaly in res["anomalies"][:3]:
                  alerts.append({"timestamp": a.timestamp, "type": a.type, "message": anomaly.get("reason", "Unknown anomaly")})
     dashboard_data["recent_alerts"] = alerts
+    dashboard_data["cross_source"] = correlate_recent_analyses(
+        recent_analyses,
+        window_minutes=int(os.getenv("FORENSIS_CORRELATION_WINDOW_MINUTES", "60")),
+    )
     return render_template("dashboard.html", dashboard_data=dashboard_data)
 
 @app.route("/cheatsheets")
@@ -420,6 +438,8 @@ def manage_users_legacy():
 @app.route("/users/mfa/disable", methods=["POST"])
 @login_required
 def disable_mfa():
+    if not _require_csrf():
+        return _safe_redirect(request.referrer, "manage_users")
     if not current_user.mfa_enabled:
         flash("MFA is already disabled.", "info")
     else:
@@ -433,6 +453,8 @@ def disable_mfa():
 @login_required
 @admin_required
 def create_user():
+    if not _require_csrf():
+        return redirect(url_for("manage_users"))
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "").strip()
     role = request.form.get("role", "analyst").strip().lower()
@@ -466,6 +488,8 @@ def create_user():
 @login_required
 @admin_required
 def update_user(user_id):
+    if not _require_csrf():
+        return redirect(url_for("manage_users"))
     user = db.session.get(User, user_id)
     if not user:
         flash("User not found.", "danger")
@@ -511,6 +535,8 @@ def update_user(user_id):
 @login_required
 @admin_required
 def reset_user_mfa(user_id):
+    if not _require_csrf():
+        return redirect(url_for("manage_users"))
     user = db.session.get(User, user_id)
     if not user:
         flash("User not found.", "danger")
@@ -525,6 +551,8 @@ def reset_user_mfa(user_id):
 @login_required
 @admin_required
 def delete_user(user_id):
+    if not _require_csrf():
+        return redirect(url_for("manage_users"))
     user = db.session.get(User, user_id)
     if not user:
         flash("User not found.", "danger")
@@ -541,6 +569,8 @@ def delete_user(user_id):
 @login_required
 @admin_required
 def add_group():
+    if not _require_csrf():
+        return redirect(url_for("manage_users"))
     name = request.form.get("name", "").strip()
     if not name:
         flash("Group name is required.", "warning")
@@ -558,6 +588,8 @@ def add_group():
 @login_required
 @admin_required
 def update_group(group_id):
+    if not _require_csrf():
+        return redirect(url_for("manage_users"))
     group = db.session.get(Group, group_id)
     if not group:
         flash("Group not found.", "danger")
@@ -584,6 +616,8 @@ def update_group(group_id):
 @login_required
 @admin_required
 def delete_group(group_id):
+    if not _require_csrf():
+        return redirect(url_for("manage_users"))
     group = db.session.get(Group, group_id)
     if not group:
         flash("Group not found.", "danger")
@@ -604,7 +638,10 @@ def sigma_refresh():
     if not _require_csrf():
         return _safe_redirect(request.referrer)
     sigma_engine.reload_rules()
-    flash("Sigma rules reloaded from local and remote directories.", "success")
+    yara_engine.reload_rules()
+    entity_profile_engine.reload()
+    threat_intel_engine.reload()
+    flash("Detection engines reloaded (Sigma, YARA, Threat Intel, Entity Profile).", "success")
     return _safe_redirect(request.referrer)
 
 @app.route("/sigma/sync", methods=["POST"])
@@ -636,6 +673,14 @@ def sigma_sync():
 @celery.task(name="app.process_logs_task")
 def process_logs_task(log_text, log_type, filename, user_id):
     results = analyze_logs(log_text, log_type=log_type)
+    results = enrich_analysis_results(
+        results,
+        "logs",
+        yara_engine=yara_engine,
+        threat_intel_engine=threat_intel_engine,
+        entity_profile_engine=entity_profile_engine,
+        raw_blob=log_text,
+    )
     events = results.get("events", [])
     ship_events(events, "logs")
     history = AnalysisHistory(type="logs", user_id=user_id, results_json=json.dumps(results, default=str), filename=filename)
@@ -647,6 +692,13 @@ def process_logs_task(log_text, log_type, filename, user_id):
 def process_network_task(path, filename, user_id):
     try:
         results = analyze_pcap(path)
+        results = enrich_analysis_results(
+            results,
+            "network",
+            yara_engine=yara_engine,
+            threat_intel_engine=threat_intel_engine,
+            entity_profile_engine=entity_profile_engine,
+        )
         events = results.get("events", [])
         ship_events(events, "network")
         history = AnalysisHistory(type="network", user_id=user_id, results_json=json.dumps(results, default=str), filename=filename)
@@ -661,11 +713,20 @@ def process_memory_task(path, stored_filename, input_name, user_id):
     try:
         raw_output = _read_memory_input(path, stored_filename)
         parsed_output = analyze_generic_output(raw_output, input_name=input_name)
+        parsed_output = enrich_analysis_results(
+            parsed_output,
+            "memory",
+            yara_engine=yara_engine,
+            threat_intel_engine=threat_intel_engine,
+            entity_profile_engine=entity_profile_engine,
+            raw_blob=raw_output,
+        )
         events = parsed_output.get("events", [])
         results = {
             "mode": "triage",
             "summary": parsed_output.get("summary"),
             "events": events,
+            "anomalies": parsed_output.get("anomalies", []),
             "parsed_output": parsed_output,
             "input_name": input_name,
         }
@@ -695,6 +756,8 @@ def task_status(task_id):
 @login_required
 def log_analyzer():
     if request.method == "POST":
+        if not _require_csrf():
+            return _safe_redirect(request.url, "log_analyzer")
         log_type = request.form.get("log_type") or "generic"
         log_text = request.form.get("log_text", "").strip()
         file = request.files.get("log_file")
@@ -725,6 +788,8 @@ def log_analyzer():
 @login_required
 def network_analyzer():
     if request.method == "POST":
+        if not _require_csrf():
+            return _safe_redirect(request.url, "network_analyzer")
         file = request.files.get("pcap_file")
         if not file or not file.filename:
             flash("Upload a PCAP file.", "warning")
@@ -753,6 +818,8 @@ def memory_helper():
         active_tab = "generate"
 
     if request.method == "POST":
+        if not _require_csrf():
+            return _safe_redirect(request.url, "memory_helper")
         mode = request.form.get("mode", "playbook")
         if mode != "playbook":
             return redirect(url_for("memory_triage"))
@@ -790,6 +857,8 @@ def memory_helper():
 def memory_triage():
     parsed_output = None
     if request.method == "POST":
+        if not _require_csrf():
+            return _safe_redirect(request.url, "memory_triage")
         raw_output = request.form.get("raw_output", "").strip()
         file = request.files.get("memory_file")
         filename = None
