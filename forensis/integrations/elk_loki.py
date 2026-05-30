@@ -30,17 +30,21 @@ def _safe_requests_post(url: str, **kwargs):
 
 
 def send_to_elasticsearch(events: List[Dict[str, Any]], source_type: str):
-    # Simple integration: send each event as a single document into Elasticsearch.
     if not ELASTIC_URL or not events:
         return
 
     base = ELASTIC_URL.rstrip("/")
     index = ELASTIC_INDEX.strip("/") or "forensis-events"
-    url = f"{base}/{index}/_doc"
+    url = f"{base}/_bulk"
 
+    bulk_data = []
     for ev in events:
         doc = {"source_type": source_type, **ev}
-        _safe_requests_post(url, json=doc)
+        bulk_data.append(json.dumps({"index": {"_index": index}}))
+        bulk_data.append(json.dumps(doc))
+
+    bulk_payload = "\n".join(bulk_data) + "\n"
+    _safe_requests_post(url, data=bulk_payload, headers={"Content-Type": "application/x-ndjson"})
 
 
 def _parse_loki_labels(raw: str) -> Dict[str, str]:

@@ -32,21 +32,23 @@
                         <a class="nav-link" href="{{ url_for('network_analyzer') }}"><i class="fas fa-network-wired me-1"></i> Network</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('memory_helper') }}"><i class="fas fa-memory me-1"></i> Memory</a>
+                        <a class="nav-link" href="{{ url_for('memory_triage') }}"><i class="fas fa-memory me-1"></i> Memory Triage</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('memory_helper') }}"><i class="fas fa-toolbox me-1"></i> Helper</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('history') }}"><i class="fas fa-history me-1"></i> History</a>
                     </li>
-                    {% if current_user.role == 'admin' %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('manage_users') }}"><i class="fas fa-users-cog me-1"></i> Users</a>
                     </li>
-                    {% endif %}
                 </ul>
                 <ul class="navbar-nav ms-auto align-items-center">
                     <li class="nav-item me-3">
-                        <button class="btn btn-outline-light btn-sm" id="theme-toggle" title="Toggle Theme">
+                        <button class="theme-toggle-btn btn btn-sm" id="theme-toggle" title="Toggle Theme" aria-label="Toggle theme">
                             <i id="theme-icon" class="fas fa-moon"></i>
+                            <span id="theme-label">Theme</span>
                         </button>
                     </li>
                     <li class="nav-item dropdown">

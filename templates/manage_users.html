@@ -2,28 +2,78 @@
 
 {% block content %}
 <div class="row mb-4">
-    <div class="col-md-12">
-        <h2 class="fw-bold"><i class="fas fa-users-cog text-primary"></i> Administration</h2>
-        <p class="text-muted">Manage users, roles, and groups for the Forensis platform.</p>
+    <div class="col-12 d-flex justify-content-between align-items-center">
+        <div>
+            <h2 class="fw-bold"><i class="fas fa-users-cog text-primary me-2"></i>Users & Administration</h2>
+            <p class="text-muted mb-0">Account security, MFA, and role/group governance.</p>
+        </div>
+        <span class="badge bg-secondary bg-opacity-25 text-light px-3 py-2">Signed in as: {{ current_user.username }}</span>
     </div>
 </div>
 
 <div class="row g-4 mb-4">
-    <div class="col-md-4">
-        <div class="card shadow-sm h-100 border-0">
-            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center py-3">
-                <span class="fw-bold">Add New User</span>
-                <i class="fas fa-user-plus"></i>
+    <div class="col-md-6">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header bg-transparent py-3">
+                <h5 class="mb-0 fw-bold"><i class="fas fa-shield-alt me-2 text-info"></i>Account Security</h5>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('manage_users') }}">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <div class="small text-muted">MFA Status</div>
+                        {% if current_user.mfa_enabled %}
+                        <div class="fw-bold text-success"><i class="fas fa-check-circle me-1"></i>Enabled</div>
+                        {% else %}
+                        <div class="fw-bold text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Disabled</div>
+                        {% endif %}
+                    </div>
+                    <div class="text-end">
+                        {% if current_user.mfa_enabled %}
+                        <form method="POST" action="{{ url_for('disable_mfa') }}">
+                            <button class="btn btn-outline-danger btn-sm" type="submit" onclick="return confirm('Disable MFA for your account?')">
+                                <i class="fas fa-unlock me-1"></i> Disable MFA
+                            </button>
+                        </form>
+                        {% else %}
+                        <a href="{{ url_for('setup_mfa') }}" class="btn btn-warning btn-sm">
+                            <i class="fas fa-lock me-1"></i> Enable MFA
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                <p class="small text-muted mb-0">Enable MFA to protect account access with time-based one-time codes.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card shadow-sm border-0 h-100 bg-light">
+            <div class="card-body">
+                <h6 class="fw-bold"><i class="fas fa-info-circle me-2 text-primary"></i>Role Model</h6>
+                <ul class="small text-muted mb-0">
+                    <li><strong>Admin:</strong> full control over users, groups, and system settings.</li>
+                    <li><strong>Analyst:</strong> can perform forensic analysis and access only own history.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if is_admin %}
+<div class="row g-4 mb-4">
+    <div class="col-md-5">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-primary text-white py-3">
+                <h5 class="mb-0 fw-bold"><i class="fas fa-user-plus me-2"></i>Create User</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('create_user') }}">
                     <div class="mb-3">
                         <label class="form-label small fw-bold">Username</label>
-                        <input type="text" name="username" class="form-control form-control-sm" required placeholder="e.g. jdoe">
+                        <input type="text" name="username" class="form-control form-control-sm" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Password</label>
-                        <input type="password" name="password" class="form-control form-control-sm" required>
+                        <label class="form-label small fw-bold">Temporary Password</label>
+                        <input type="password" name="password" class="form-control form-control-sm" required minlength="8">
                     </div>
                     <div class="mb-3">
                         <label class="form-label small fw-bold">Role</label>
@@ -33,7 +83,7 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Group Assignment</label>
+                        <label class="form-label small fw-bold">Group</label>
                         <select name="group_id" class="form-select form-select-sm">
                             <option value="">None</option>
                             {% for group in groups %}
@@ -41,70 +91,76 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm w-100 mt-2">
-                        <i class="fas fa-save me-1"></i> Create User
-                    </button>
+                    <button type="submit" class="btn btn-primary btn-sm w-100">Create User</button>
                 </form>
             </div>
         </div>
     </div>
 
-    <div class="col-md-4">
-        <div class="card shadow-sm h-100 border-0">
-            <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center py-3">
-                <span class="fw-bold">Manage Groups</span>
-                <i class="fas fa-users"></i>
+    <div class="col-md-7">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header bg-secondary text-white py-3">
+                <h5 class="mb-0 fw-bold"><i class="fas fa-users me-2"></i>Group Administration</h5>
             </div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('add_group') }}" class="mb-4">
-                    <label class="form-label small fw-bold">New Group Name</label>
+                    <label class="form-label small fw-bold">Create New Group</label>
                     <div class="input-group input-group-sm">
-                        <input type="text" name="name" class="form-control" required placeholder="e.g. SOC-Team">
+                        <input type="text" name="name" class="form-control" required placeholder="e.g. DFIR-Team">
                         <button type="submit" class="btn btn-secondary">Add</button>
                     </div>
                 </form>
 
-                <h6 class="text-muted border-bottom pb-2 small fw-bold">Existing Groups</h6>
-                <ul class="list-group list-group-flush small">
-                    {% for group in groups %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center px-0">
-                        {{ group.name }}
-                        {% if group.name != 'Administrators' and not group.users %}
-                        <a href="{{ url_for('delete_group', group_id=group.id) }}" class="text-danger" onclick="return confirm('Delete group {{ group.name }}?')" title="Delete Group">
-                            <i class="fas fa-trash-alt"></i>
-                        </a>
-                        {% else %}
-                        <span class="text-muted" title="Locked: System group or contains users"><i class="fas fa-lock fa-xs"></i></span>
-                        {% endif %}
-                    </li>
-                    {% else %}
-                    <li class="list-group-item text-muted px-0">No groups found.</li>
-                    {% endfor %}
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-md-4">
-        <div class="card shadow-sm h-100 border-0 bg-light">
-            <div class="card-body">
-                <h6 class="fw-bold"><i class="fas fa-info-circle me-2 text-info"></i>RBAC Overview</h6>
-                <p class="small text-muted">Forensis uses Role-Based Access Control to secure forensics workflows.</p>
-                
-                <ul class="small text-muted">
-                    <li><strong>Admin:</strong> Full access to system settings, user management, and all analysis history.</li>
-                    <li><strong>Analyst:</strong> Can perform log, network, and memory analysis. Limited to their own history.</li>
-                </ul>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Group</th>
+                                <th>Members</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for group in groups %}
+                            <tr>
+                                <td>
+                                    {% if group.name == 'Administrators' %}
+                                    <span class="fw-bold">{{ group.name }}</span>
+                                    {% else %}
+                                    <form method="POST" action="{{ url_for('update_group', group_id=group.id) }}" class="d-flex gap-2">
+                                        <input type="text" name="name" class="form-control form-control-sm" value="{{ group.name }}" required>
+                                        <button class="btn btn-outline-primary btn-sm" type="submit">Update</button>
+                                    </form>
+                                    {% endif %}
+                                </td>
+                                <td><span class="badge bg-dark">{{ group.users|length }}</span></td>
+                                <td class="text-end">
+                                    {% if group.name != 'Administrators' %}
+                                    <form method="POST" action="{{ url_for('delete_group', group_id=group.id) }}" class="d-inline">
+                                        <button class="btn btn-outline-danger btn-sm" type="submit" onclick="return confirm('Delete group {{ group.name }}?')">
+                                            Delete
+                                        </button>
+                                    </form>
+                                    {% else %}
+                                    <span class="badge bg-light text-muted border">Protected</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
 </div>
+{% endif %}
 
 <div class="row">
     <div class="col-md-12">
         <div class="card shadow-sm border-0">
             <div class="card-header bg-white py-3">
-                <h5 class="mb-0 fw-bold">User Directory</h5>
+                <h5 class="mb-0 fw-bold">{{ "User Directory" if is_admin else "My Account" }}</h5>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -115,43 +171,70 @@
                                 <th>Username</th>
                                 <th>Role</th>
                                 <th>Group</th>
-                                <th>MFA Status</th>
+                                <th>MFA</th>
+                                {% if is_admin %}
+                                <th>Set New Password</th>
                                 <th class="text-end pe-4">Actions</th>
+                                {% endif %}
                             </tr>
                         </thead>
                         <tbody>
                             {% for user in users %}
                             <tr>
-                                <td class="ps-4">{{ user.id }}</td>
-                                <td class="fw-bold">{{ user.username }}</td>
-                                <td>
-                                    <span class="badge {% if user.role == 'admin' %}bg-danger{% else %}bg-info text-dark{% endif %} bg-opacity-10 text-uppercase" style="font-size: 0.7rem;">
-                                        {{ user.role }}
-                                    </span>
-                                </td>
-                                <td>
-                                    {% if user.group %}
-                                    <span class="text-secondary small"><i class="fas fa-tag me-1"></i>{{ user.group.name }}</span>
-                                    {% else %}
-                                    <span class="text-muted small">-</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if user.mfa_enabled %}
-                                    <span class="text-success small"><i class="fas fa-shield-alt me-1"></i>Enabled</span>
-                                    {% else %}
-                                    <span class="text-muted small"><i class="fas fa-unlock me-1"></i>Disabled</span>
-                                    {% endif %}
-                                </td>
-                                <td class="text-end pe-4">
-                                    {% if user.username != 'admin' and user.id != current_user.id %}
-                                    <a href="{{ url_for('delete_user', user_id=user.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete user {{ user.username }}?')">
-                                        <i class="fas fa-trash-alt me-1"></i> Delete
-                                    </a>
-                                    {% else %}
-                                    <span class="badge bg-light text-muted fw-normal border">Protected System Account</span>
-                                    {% endif %}
-                                </td>
+                                {% if is_admin %}
+                                    <td class="ps-4 fw-bold">
+                                        {{ user.id }}
+                                        <form id="update-user-{{ user.id }}" method="POST" action="{{ url_for('update_user', user_id=user.id) }}"></form>
+                                    </td>
+                                    <td>
+                                        <input type="text" name="username" class="form-control form-control-sm" value="{{ user.username }}" required form="update-user-{{ user.id }}">
+                                    </td>
+                                    <td>
+                                        <select name="role" class="form-select form-select-sm" form="update-user-{{ user.id }}">
+                                            <option value="analyst" {% if user.role == 'analyst' %}selected{% endif %}>Analyst</option>
+                                            <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin</option>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <select name="group_id" class="form-select form-select-sm" form="update-user-{{ user.id }}">
+                                            <option value="">None</option>
+                                            {% for group in groups %}
+                                            <option value="{{ group.id }}" {% if user.group_id == group.id %}selected{% endif %}>{{ group.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </td>
+                                    <td>
+                                        {% if user.mfa_enabled %}
+                                        <span class="text-success small"><i class="fas fa-check-circle me-1"></i>Enabled</span>
+                                        {% else %}
+                                        <span class="text-muted small"><i class="fas fa-times-circle me-1"></i>Disabled</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <input type="password" name="new_password" class="form-control form-control-sm" minlength="8" placeholder="Optional" form="update-user-{{ user.id }}">
+                                    </td>
+                                    <td class="text-end pe-4">
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-outline-primary" type="submit" form="update-user-{{ user.id }}">Save</button>
+                                            <button class="btn btn-outline-warning" type="submit" form="update-user-{{ user.id }}" formaction="{{ url_for('reset_user_mfa', user_id=user.id) }}" formmethod="post">Reset MFA</button>
+                                            {% if user.username != 'admin' and user.id != current_user.id %}
+                                            <button class="btn btn-outline-danger" type="submit" form="update-user-{{ user.id }}" formaction="{{ url_for('delete_user', user_id=user.id) }}" formmethod="post" onclick="return confirm('Delete user {{ user.username }}?')">Delete</button>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                {% else %}
+                                    <td class="ps-4 fw-bold">{{ user.id }}</td>
+                                    <td class="fw-bold">{{ user.username }}</td>
+                                    <td>{{ user.role|capitalize }}</td>
+                                    <td>{{ user.group.name if user.group else '-' }}</td>
+                                    <td>
+                                        {% if user.mfa_enabled %}
+                                        <span class="text-success small"><i class="fas fa-check-circle me-1"></i>Enabled</span>
+                                        {% else %}
+                                        <span class="text-muted small"><i class="fas fa-times-circle me-1"></i>Disabled</span>
+                                        {% endif %}
+                                    </td>
+                                {% endif %}
                             </tr>
                             {% endfor %}
                         </tbody>

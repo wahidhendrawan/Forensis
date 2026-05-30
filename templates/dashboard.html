@@ -4,124 +4,82 @@
 <div class="row mb-4">
     <div class="col-12 d-flex justify-content-between align-items-center">
         <div>
-            <h1 class="display-5 fw-bold"><i class="fas fa-tachometer-alt text-primary"></i> Dashboard</h1>
-            <p class="text-muted mb-0">Threat Intelligence & Analysis Overview</p>
+            <h1 class="display-5 fw-bold"><i class="fas fa-tachometer-alt text-primary me-3"></i>Dashboard</h1>
+            <p class="text-muted mb-0">Operational Overview & Threat Triage</p>
         </div>
-        <div>
-             {% if not current_user.mfa_enabled %}
-             <a href="{{ url_for('setup_mfa') }}" class="btn btn-outline-warning btn-sm shadow-sm"><i class="fas fa-lock me-1"></i> Enable MFA</a>
-             {% else %}
-             <span class="badge bg-success bg-opacity-10 text-success border border-success px-3 py-2"><i class="fas fa-shield-alt me-1"></i> MFA Protected</span>
-             {% endif %}
+        <div class="d-flex gap-2">
+             <a href="{{ url_for('export_report_bundle') }}" class="btn btn-outline-primary btn-sm"><i class="fas fa-file-export me-2"></i>Export Report Bundle</a>
+             <a href="{{ url_for('manage_users') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-user-shield me-2"></i>Users & Security</a>
         </div>
     </div>
 </div>
 
 <div class="row g-4 mb-4">
     <div class="col-md-3">
-        <div class="card h-100 border-primary shadow-sm bg-dark text-white">
+        <div class="card h-100 stat-card">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
-                        <h6 class="card-subtitle text-muted mb-1">Total Log Events</h6>
-                        <h2 class="card-title mb-0 display-6">{{ dashboard_data.logs.total|default(0) }}</h2>
+                        <h6 class="text-muted small text-uppercase fw-bold mb-1">Log Events</h6>
+                        <h2 class="mb-0 fw-bold">{{ dashboard_data.logs.total|default(0) }}</h2>
                     </div>
-                    <div class="bg-primary bg-opacity-25 rounded-circle p-3">
-                        <i class="fas fa-file-alt fa-2x text-primary"></i>
+                    <div class="rounded-circle bg-primary bg-opacity-10 p-3 text-primary">
+                        <i class="fas fa-file-invoice fa-2x"></i>
                     </div>
                 </div>
-                 <p class="card-text small text-muted"><i class="fas fa-history me-1"></i> {{ dashboard_data.counts.logs }} analyses run</p>
+                <div class="progress" style="height: 4px;">
+                    <div class="progress-bar bg-primary" style="width: 75%"></div>
+                </div>
             </div>
         </div>
     </div>
-
     <div class="col-md-3">
-        <div class="card h-100 border-danger shadow-sm bg-dark text-white">
+        <div class="card h-100 stat-card border-bottom border-danger">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
-                        <h6 class="card-subtitle text-muted mb-1">Log Anomalies</h6>
-                        <h2 class="card-title mb-0 display-6 text-danger">{{ dashboard_data.logs.anomalies|default(0) }}</h2>
+                        <h6 class="text-muted small text-uppercase fw-bold mb-1">Anomalies</h6>
+                        <h2 class="mb-0 fw-bold text-danger">{{ dashboard_data.logs.anomalies|default(0) }}</h2>
                     </div>
-                    <div class="bg-danger bg-opacity-25 rounded-circle p-3">
-                        <i class="fas fa-exclamation-triangle fa-2x text-danger"></i>
+                    <div class="rounded-circle bg-danger bg-opacity-10 p-3 text-danger">
+                        <i class="fas fa-radiation fa-2x"></i>
                     </div>
                 </div>
-                 <div class="progress" style="height: 5px;">
-                    {% set anomaly_perc = (dashboard_data.logs.anomalies / (dashboard_data.logs.total or 1) * 100)|round %}
-                    <div class="progress-bar bg-danger" role="progressbar" style="width: {{ anomaly_perc }}%" aria-valuenow="{{ anomaly_perc }}" aria-valuemin="0" aria-valuemax="100"></div>
-                </div>
-                <p class="card-text small text-muted mt-2">{{ anomaly_perc }}% of total traffic</p>
+                <p class="small text-muted mb-0"><i class="fas fa-chart-line me-1 text-danger"></i> +{{ dashboard_data.logs.anomalies }} detected in last session</p>
             </div>
         </div>
     </div>
-
     <div class="col-md-3">
-        <div class="card h-100 border-warning shadow-sm bg-dark text-white">
+        <div class="card h-100 stat-card">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
-                        <h6 class="card-subtitle text-muted mb-1">Network Flows</h6>
-                        <h2 class="card-title mb-0 display-6 text-warning">{{ dashboard_data.network.flows|default(0) }}</h2>
+                        <h6 class="text-muted small text-uppercase fw-bold mb-1">Net Flows</h6>
+                        <h2 class="mb-0 fw-bold text-info">{{ dashboard_data.network.flows|default(0) }}</h2>
                     </div>
-                    <div class="bg-warning bg-opacity-25 rounded-circle p-3">
-                        <i class="fas fa-network-wired fa-2x text-warning"></i>
+                    <div class="rounded-circle bg-info bg-opacity-10 p-3 text-info">
+                        <i class="fas fa-project-diagram fa-2x"></i>
                     </div>
                 </div>
-                 <p class="card-text small text-muted"><i class="fas fa-history me-1"></i> {{ dashboard_data.counts.network }} analyses run</p>
+                <div class="progress" style="height: 4px;">
+                    <div class="progress-bar bg-info" style="width: 45%"></div>
+                </div>
             </div>
         </div>
     </div>
-
     <div class="col-md-3">
-        <div class="card h-100 border-success shadow-sm bg-dark text-white">
+        <div class="card h-100 stat-card">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
-                        <h6 class="card-subtitle text-muted mb-1">Memory Triage</h6>
-                        <h2 class="card-title mb-0 display-6 text-success">{{ dashboard_data.counts.memory }}</h2>
+                        <h6 class="text-muted small text-uppercase fw-bold mb-1">Memory Forensics</h6>
+                        <h2 class="mb-0 fw-bold text-success">{{ dashboard_data.counts.memory }}</h2>
                     </div>
-                    <div class="bg-success bg-opacity-25 rounded-circle p-3">
-                        <i class="fas fa-memory fa-2x text-success"></i>
+                    <div class="rounded-circle bg-success bg-opacity-10 p-3 text-success">
+                        <i class="fas fa-memory fa-2x"></i>
                     </div>
                 </div>
-                <p class="card-text small text-muted">Persistence & Malware focus</p>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="row g-4 mb-4">
-    <div class="col-md-6">
-        <div class="card h-100 shadow-sm">
-            <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
-                <h5 class="mb-0 fw-bold"><i class="fas fa-chart-pie me-2 text-primary"></i>Status Distribution</h5>
-            </div>
-            <div class="card-body position-relative" style="height: 300px;">
-                {% if dashboard_data.logs.total > 0 %}
-                <canvas id="logsStatusChart"></canvas>
-                {% else %}
-                <div class="d-flex align-items-center justify-content-center h-100 text-muted border border-dashed rounded">
-                    <span>No log data available for visualization</span>
-                </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    <div class="col-md-6">
-        <div class="card h-100 shadow-sm">
-            <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
-                <h5 class="mb-0 fw-bold"><i class="fas fa-chart-bar me-2 text-primary"></i>Top Attack Sources</h5>
-            </div>
-            <div class="card-body position-relative" style="height: 300px;">
-                {% if dashboard_data.logs.total > 0 %}
-                <canvas id="logsSourceChart"></canvas>
-                {% else %}
-                <div class="d-flex align-items-center justify-content-center h-100 text-muted border border-dashed rounded">
-                    <span>No source data available</span>
-                </div>
-                {% endif %}
+                <p class="small text-muted mb-0"><i class="fas fa-check-circle me-1 text-success"></i> Triage & playbook workflow</p>
             </div>
         </div>
     </div>
@@ -129,37 +87,34 @@
 
 <div class="row g-4 mb-4">
     <div class="col-md-8">
-        <div class="card h-100 shadow-sm">
-            <div class="card-header bg-transparent border-0">
-                <h5 class="mb-0 fw-bold"><i class="fas fa-bell me-2 text-danger"></i>Recent Anomalies & Alerts</h5>
+        <div class="card shadow-sm h-100">
+            <div class="card-header d-flex justify-content-between align-items-center py-3">
+                <h5 class="mb-0 fw-bold"><i class="fas fa-bell me-2"></i>Critical Alerts & Timeline</h5>
+                <span class="badge bg-danger rounded-pill">{{ dashboard_data.recent_alerts|length }} Active</span>
             </div>
-            <div class="card-body p-0">
+            <div class="card-body p-0 overflow-auto" style="max-height: 400px;">
                 {% if dashboard_data.recent_alerts %}
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Timestamp</th>
-                                <th>Type</th>
-                                <th>Message</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for alert in dashboard_data.recent_alerts %}
-                            <tr>
-                                <td class="small text-muted" style="white-space:nowrap">{{ alert.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
-                                <td><span class="badge bg-secondary opacity-75">{{ alert.type }}</span></td>
-                                <td class="text-truncate" style="max-width: 300px;" title="{{ alert.message }}">{{ alert.message }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                <div class="list-group list-group-flush">
+                    {% for alert in dashboard_data.recent_alerts %}
+                    <div class="list-group-item bg-transparent border-bottom border-secondary border-opacity-10 py-3 px-4">
+                        <div class="d-flex w-100 justify-content-between align-items-center mb-1">
+                            <h6 class="mb-0 fw-bold text-light">
+                                <i class="fas fa-circle text-{{ 'danger' if alert.type == 'logs' else 'info' }} me-2" style="font-size: 0.6rem;"></i>
+                                {{ alert.message }}
+                            </h6>
+                            <small class="text-muted">{{ alert.timestamp.strftime('%H:%M:%S') }}</small>
+                        </div>
+                        <div class="d-flex gap-2 mt-2">
+                            <span class="badge bg-secondary bg-opacity-25 text-light small">{{ alert.type|upper }}</span>
+                            <span class="text-muted x-small">Detection Source: Sigma Engine</span>
+                        </div>
+                    </div>
+                    {% endfor %}
                 </div>
                 {% else %}
-                <div class="p-5 text-center text-muted">
-                    <i class="fas fa-check-circle fa-3x mb-3 text-success opacity-50"></i><br>
-                    <span class="fw-bold">System Clear</span><br>
-                    No recent anomalies detected in the database.
+                <div class="p-5 text-center">
+                    <i class="fas fa-shield-check fa-4x text-success opacity-20 mb-3"></i>
+                    <h5 class="text-muted">No anomalies detected</h5>
                 </div>
                 {% endif %}
             </div>
@@ -167,90 +122,97 @@
     </div>
 
     <div class="col-md-4">
-         <div class="card h-100 shadow-sm border-info">
-            <div class="card-header bg-info bg-opacity-10 border-0">
-                <h5 class="mb-0 text-info fw-bold"><i class="fas fa-sync me-2"></i>Sigma Engine</h5>
+        <div class="card shadow-sm h-100 bg-primary bg-opacity-10 border-0">
+            <div class="card-header bg-transparent border-0 pt-4">
+                <h5 class="mb-0 fw-bold text-primary"><i class="fas fa-sync-alt me-2"></i>Sigma Engine Rules</h5>
             </div>
             <div class="card-body">
-                <p class="small text-muted">Update detection rules from remote repositories.</p>
-                <form method="POST" action="{{ url_for('sigma_sync') }}" class="mb-3">
-                    <label class="form-label small fw-bold">Sync from URLs (CSV)</label>
-                    <div class="input-group input-group-sm">
-                        <input type="text" name="sigma_urls" class="form-control" placeholder="https://..." value="{{ request.form.get('sigma_urls', '') }}">
-                        <button type="submit" class="btn btn-info text-white"><i class="fas fa-cloud-download-alt"></i></button>
+                <p class="small text-secondary mb-4">Pull latest community threat signatures to enhance detection capabilities.</p>
+                
+                <form method="POST" action="{{ url_for('sigma_sync') }}">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">Remote Repository URLs</label>
+                        <textarea name="sigma_urls" class="form-control bg-dark border-0 text-light" rows="3" placeholder="https://raw.githubusercontent.com/..."></textarea>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-cloud-download-alt me-2"></i>Sync Rules</button>
+                        <button type="submit" formaction="{{ url_for('sigma_refresh') }}" class="btn btn-outline-primary btn-sm border-0">Reload Local Cache</button>
                     </div>
                 </form>
-                <hr class="my-3 opacity-50">
-                <div class="d-grid gap-2">
-                     <form method="POST" action="{{ url_for('sigma_refresh') }}">
-                         <button type="submit" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-redo me-1"></i> Reload Local YAMLs</button>
-                    </form>
-                </div>
             </div>
         </div>
     </div>
 </div>
 
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-header py-3">
+                <h5 class="mb-0 fw-bold">Top Traffic Sources</h5>
+            </div>
+            <div class="card-body" style="height: 300px;">
+                <canvas id="logsSourceChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-header py-3">
+                <h5 class="mb-0 fw-bold">Event Status Breakdown</h5>
+            </div>
+            <div class="card-body" style="height: 300px;">
+                <canvas id="logsStatusChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        {% if dashboard_data.logs.total > 0 %}
-        // Logs Status Doughnut
-        var ctxStatus = document.getElementById('logsStatusChart').getContext('2d');
-        var statusData = {{ dashboard_data.logs.top_status | tojson }};
-        var statusLabels = statusData.map(function(item) { return "HTTP " + item[0]; });
-        var statusCounts = statusData.map(function(item) { return item[1]; });
+        const sourceCtx = document.getElementById('logsSourceChart').getContext('2d');
+        const statusCtx = document.getElementById('logsStatusChart').getContext('2d');
+        
+        const sourceData = {{ dashboard_data.logs.top_sources | tojson }};
+        const statusData = {{ dashboard_data.logs.top_status | tojson }};
 
-        new Chart(ctxStatus, {
+        new Chart(sourceCtx, {
+            type: 'bar',
+            data: {
+                labels: sourceData.map(d => d[0]),
+                datasets: [{
+                    label: 'Events',
+                    data: sourceData.map(d => d[1]),
+                    backgroundColor: '#38bdf8',
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                maintainAspectRatio: false,
+                scales: {
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                    x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        new Chart(statusCtx, {
             type: 'doughnut',
             data: {
-                labels: statusLabels,
+                labels: statusData.map(d => 'HTTP ' + d[0]),
                 datasets: [{
-                    data: statusCounts,
-                    backgroundColor: ['#198754', '#dc3545', '#ffc107', '#0dcaf0', '#6c757d'],
-                    hoverOffset: 4,
+                    data: statusData.map(d => d[1]),
+                    backgroundColor: ['#10b981', '#f43f5e', '#f59e0b', '#3b82f6', '#6366f1'],
                     borderWidth: 0
                 }]
             },
             options: {
-                responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { position: 'right', labels: { color: '#adb5bd', usePointStyle: true } }
+                    legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 20 } }
                 }
             }
         });
-
-        // Logs Source Bar
-        var ctxSource = document.getElementById('logsSourceChart').getContext('2d');
-        var sourceData = {{ dashboard_data.logs.top_sources | tojson }};
-        var sourceLabels = sourceData.map(function(item) { return item[0]; });
-        var sourceCounts = sourceData.map(function(item) { return item[1]; });
-
-        new Chart(ctxSource, {
-            type: 'bar',
-            data: {
-                labels: sourceLabels,
-                datasets: [{
-                    label: 'Event Count',
-                    data: sourceCounts,
-                    backgroundColor: '#0d6efd',
-                    borderRadius: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: { ticks: { color: '#adb5bd' }, grid: { display: false } },
-                    y: { ticks: { color: '#adb5bd' }, grid: { color: 'rgba(255,255,255,0.05)' } }
-                },
-                plugins: {
-                    legend: { display: false }
-                }
-            }
-        });
-        {% endif %}
     });
 </script>
 {% endblock %}
