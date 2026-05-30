@@ -11,6 +11,7 @@
 <div class="card shadow-sm">
     <div class="card-body p-4">
         <form method="post" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="mb-3">
                 <label class="form-label fw-bold">Upload Memory Tool Output</label>
                 <input type="file" name="memory_file" class="form-control" accept=".txt,.log,.json,.jsonl,.ndjson,.csv,.tsv,.xml,.yaml,.yml,.zip,.vmem,.mem">
@@ -61,6 +62,68 @@
     </div>
     {% endif %}
 
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card text-center h-100 shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase small mb-2">Threat Intel</h6>
+                    <h4 class="fw-bold mb-1">{{ parsed_output.summary.threat_intel_hits|default(0) }}</h4>
+                    <small class="text-muted">Score: {{ parsed_output.summary.threat_intel_score|default(0) }}</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center h-100 shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase small mb-2">YARA Hits</h6>
+                    <h4 class="fw-bold mb-1">{{ parsed_output.summary.yara_hits|default(0) }}</h4>
+                    <small class="text-muted">
+                        {% if parsed_output.summary.yara_engine_available %}
+                        Loaded files: {{ parsed_output.summary.yara_loaded_rule_files|default(0) }}
+                        {% else %}
+                        Engine unavailable
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center h-100 shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase small mb-2">Baseline Drift</h6>
+                    <h4 class="fw-bold mb-1">{{ parsed_output.summary.baseline_deviation_hits|default(0) }}</h4>
+                    <small class="text-muted">Deviation findings</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center h-100 shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase small mb-2">Allowlist</h6>
+                    <h4 class="fw-bold mb-1">{{ parsed_output.summary.allowlist_suppressed|default(0) }}</h4>
+                    <small class="text-muted">Suppressed noise</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if parsed_output.summary.ti_top_indicators %}
+    <div class="small text-muted mb-2">
+        <strong>Top TI Indicators:</strong>
+        {% for item in parsed_output.summary.ti_top_indicators[:5] %}
+            <code>{{ item[0] }}</code>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if parsed_output.summary.yara_top_rules %}
+    <div class="small text-muted mb-3">
+        <strong>Top YARA Rules:</strong>
+        {% for item in parsed_output.summary.yara_top_rules[:5] %}
+            <code>{{ item[0] }}</code>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
     {% if parsed_output.suspicious %}
     <div class="card border-danger">
         <div class="table-responsive">
@@ -103,6 +166,42 @@
                 <li>{{ recommendation }}</li>
                 {% endfor %}
             </ul>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if parsed_output.anomalies %}
+    <div class="card mt-3 border-warning">
+        <div class="card-header bg-warning text-dark fw-bold">Engine Findings (TI/YARA/Baseline)</div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-striped mb-0 small">
+                    <thead>
+                        <tr>
+                            <th>Severity</th>
+                            <th>Category</th>
+                            <th>Indicator</th>
+                            <th>Reason</th>
+                            <th>Context</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for anomaly in parsed_output.anomalies %}
+                        <tr>
+                            <td>
+                                <span class="badge {% if anomaly.severity == 'critical' %}bg-danger{% elif anomaly.severity == 'high' %}bg-warning text-dark{% elif anomaly.severity == 'medium' %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+                                    {{ (anomaly.severity or 'low')|upper }}
+                                </span>
+                            </td>
+                            <td>{{ anomaly.category or '-' }}</td>
+                            <td>{{ anomaly.indicator or '-' }}</td>
+                            <td>{{ anomaly.reason }}</td>
+                            <td><code>{{ anomaly.event.raw or anomaly.event.message or anomaly.event.source or '-' }}</code></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
     {% endif %}

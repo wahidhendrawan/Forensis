@@ -1,0 +1,15 @@
+title: Baseline Bulk Exfiltration Pattern
+id: forensis-baseline-network-003
+status: experimental
+description: Detects heavy-byte, low-packet flows that can indicate compressed bulk data exfiltration.
+author: Forensis
+date: 2026-05-30
+logsource:
+  category: network
+detection:
+  selection_bytes:
+    bytes|gte: 10000000
+  selection_packets:
+    packets|lt: 40
+  condition: selection_bytes and selection_packets
+level: high

@@ -1,0 +1,19 @@
+title: Baseline Known C2 Port Flow
+id: forensis-baseline-network-001
+status: stable
+description: Detects flow events that communicate over common command-and-control port values.
+author: Forensis
+date: 2026-05-30
+logsource:
+  category: network
+detection:
+  selection:
+    dst_port|eq:
+      - 4444
+      - 4445
+      - 1337
+      - 31337
+      - 9001
+      - 6667
+  condition: selection
+level: high

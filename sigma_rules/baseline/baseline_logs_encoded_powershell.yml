@@ -1,0 +1,18 @@
+title: Baseline Encoded PowerShell Execution
+id: forensis-baseline-logs-001
+status: experimental
+description: Detects encoded or obfuscated PowerShell execution patterns in log and endpoint message fields.
+author: Forensis
+date: 2026-05-30
+logsource:
+  category: logs
+detection:
+  selection:
+    message|contains:
+      - "*powershell* -enc*"
+      - "*powershell* -encodedcommand*"
+      - "*frombase64string*"
+      - "*invoke-expression*"
+      - "*iex *"
+  condition: selection
+level: high

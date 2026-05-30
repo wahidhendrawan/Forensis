@@ -4,7 +4,7 @@
   <div class="col-12">
     <h2>Network Traffic Analyzer</h2>
     <p class="text-muted">
-      Upload a PCAP file. Forensis will summarize flows, highlight suspicious traffic, and correlate with Sigma rules.
+      Upload a PCAP file. Forensis will summarize flows and run multi-engine detection (Sigma, YARA, Threat Intel, baseline).
     </p>
   </div>
 </div>
@@ -12,6 +12,7 @@
 <div class="card shadow-sm mb-4">
     <div class="card-body">
         <form method="post" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="row g-3">
                 <div class="col-md-9">
                     <label class="form-label">PCAP File</label>
@@ -71,12 +72,60 @@
   </div>
   {% endif %}
 
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <div class="card text-center h-100 shadow-sm">
+        <div class="card-body">
+          <h6 class="text-muted text-uppercase small mb-2">Threat Intel</h6>
+          <h4 class="fw-bold mb-1">{{ results.summary.threat_intel_hits|default(0) }}</h4>
+          <small class="text-muted">Score: {{ results.summary.threat_intel_score|default(0) }}</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-center h-100 shadow-sm">
+        <div class="card-body">
+          <h6 class="text-muted text-uppercase small mb-2">YARA Hits</h6>
+          <h4 class="fw-bold mb-1">{{ results.summary.yara_hits|default(0) }}</h4>
+          <small class="text-muted">
+            {% if results.summary.yara_engine_available %}
+            Loaded files: {{ results.summary.yara_loaded_rule_files|default(0) }}
+            {% else %}
+            Engine unavailable
+            {% endif %}
+          </small>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-center h-100 shadow-sm">
+        <div class="card-body">
+          <h6 class="text-muted text-uppercase small mb-2">Baseline Drift</h6>
+          <h4 class="fw-bold mb-1">{{ results.summary.baseline_deviation_hits|default(0) }}</h4>
+          <small class="text-muted">Deviation findings</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-center h-100 shadow-sm">
+        <div class="card-body">
+          <h6 class="text-muted text-uppercase small mb-2">Allowlist</h6>
+          <h4 class="fw-bold mb-1">{{ results.summary.allowlist_suppressed|default(0) }}</h4>
+          <small class="text-muted">Suppressed noise</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
   {% if results.anomalies %}
     <h5 class="mb-2 text-danger">Suspicious Flows</h5>
     <div class="table-responsive mb-4">
       <table class="table table-sm table-striped align-middle table-hover">
         <thead class="table-danger">
           <tr>
+            <th>Severity</th>
+            <th>Category</th>
+            <th>Indicator</th>
             <th>Reason</th>
             <th>Src</th>
             <th>Dst</th>
@@ -91,17 +140,34 @@
         </thead>
         <tbody class="small">
           {% for a in results.anomalies %}
+            {% set flow = a.flow if a.flow else {} %}
+            {% set event = a.event if a.event else {} %}
             <tr>
+              <td>
+                <span class="badge {% if a.severity == 'critical' %}bg-danger{% elif a.severity == 'high' %}bg-warning text-dark{% elif a.severity == 'medium' %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+                  {{ (a.severity or 'low')|upper }}
+                </span>
+              </td>
+              <td>{{ a.category or '-' }}</td>
+              <td>{{ a.indicator or '-' }}</td>
               <td>{{ a.reason }}</td>
-              <td><code>{{ a.flow.src }}</code></td>
-              <td><code>{{ a.flow.dst }}</code></td>
-              <td>{{ a.flow.sport }}</td>
-              <td>{{ a.flow.dport }}</td>
-              <td>{{ a.flow.packets }}</td>
-              <td>{{ a.flow.bytes }}</td>
-              <td>{{ '%.2f'|format(a.flow.duration) }}</td>
-              <td>{{ a.flow.first_seen or '-' }}</td>
-              <td>{{ a.flow.last_seen or '-' }}</td>
+              <td><code>{{ flow.src or event.src_ip or event.ip or '-' }}</code></td>
+              <td><code>{{ flow.dst or event.dst_ip or event.host or '-' }}</code></td>
+              <td>{{ flow.sport or event.src_port or '-' }}</td>
+              <td>{{ flow.dport or event.dst_port or '-' }}</td>
+              <td>{{ flow.packets or event.packets or '-' }}</td>
+              <td>{{ flow.bytes or event.bytes or '-' }}</td>
+              <td>
+                {% if flow.duration is defined %}
+                {{ '%.2f'|format(flow.duration) }}
+                {% elif event.duration is defined %}
+                {{ '%.2f'|format(event.duration) }}
+                {% else %}
+                -
+                {% endif %}
+              </td>
+              <td>{{ flow.first_seen or event.first_seen or '-' }}</td>
+              <td>{{ flow.last_seen or event.last_seen or '-' }}</td>
             </tr>
           {% endfor %}
         </tbody>

@@ -22,6 +22,7 @@
         <div class="card shadow-sm">
             <div class="card-body p-4">
                 <form method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="mode" value="playbook">
                     <div class="row g-3">
                         <div class="col-md-4">
@@ -117,7 +118,7 @@
         "network": [
             {val: "network.analysis.baseline", label: "Network Baseline Analysis"},
             {val: "network.c2_hunting", label: "C2 Hunting"},
-            {val: "intrusion_detection", label: "Legacy Intrusion Detection"}
+            {val: "intrusion_detection", label: "Legacy Network Analysis"}
         ],
         "logs": [
             {val: "web_attack", label: "Web Attack Analysis"},

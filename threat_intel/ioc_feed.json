@@ -1,0 +1,54 @@
+{
+  "generated_at": "2026-05-30T00:00:00Z",
+  "indicators": [
+    {
+      "type": "ip",
+      "value": "185.220.101.1",
+      "name": "Known Tor Exit Node Abuse",
+      "severity": "medium",
+      "score": 25,
+      "source": "forensis-default-ti"
+    },
+    {
+      "type": "ip",
+      "value": "103.27.202.88",
+      "name": "Known Botnet Controller Host",
+      "severity": "high",
+      "score": 45,
+      "source": "forensis-default-ti"
+    },
+    {
+      "type": "domain",
+      "value": "pastebin-malware.example",
+      "name": "Malware Payload Domain",
+      "severity": "high",
+      "score": 45,
+      "source": "forensis-default-ti"
+    },
+    {
+      "type": "domain",
+      "value": "*.badc2.example",
+      "name": "Suspicious C2 Domain Pattern",
+      "severity": "high",
+      "score": 50,
+      "source": "forensis-default-ti"
+    },
+    {
+      "type": "hash",
+      "value": "44d88612fea8a8f36de82e1278abb02f",
+      "name": "EICAR / Test Malware Marker",
+      "severity": "low",
+      "score": 10,
+      "source": "forensis-default-ti"
+    }
+  ],
+  "cidr": [
+    {
+      "value": "45.95.147.0/24",
+      "name": "Known Suspicious VPS Segment",
+      "severity": "medium",
+      "score": 30,
+      "source": "forensis-default-ti"
+    }
+  ]
+}

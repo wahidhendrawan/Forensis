@@ -1,0 +1,17 @@
+title: Baseline Shadow Copy Deletion Command
+id: forensis-baseline-logs-003
+status: experimental
+description: Detects destructive ransomware-like commands targeting backup and recovery controls.
+author: Forensis
+date: 2026-05-30
+logsource:
+  category: endpoint
+detection:
+  selection:
+    message|contains:
+      - "*vssadmin delete shadows*"
+      - "*wmic shadowcopy delete*"
+      - "*bcdedit /set {default} recoveryenabled no*"
+      - "*wbadmin delete catalog*"
+  condition: selection
+level: critical

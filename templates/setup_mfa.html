@@ -15,7 +15,9 @@
                 <p class="small text-muted mb-3">Secret Key: <code>{{ secret }}</code></p>
 
                 <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="secret" value="{{ secret }}">
+                    <input type="hidden" name="qr_code_hidden" value="{{ qr_code }}">
                     <div class="input-group mb-3 w-75 mx-auto">
                         <input type="text" name="otp" class="form-control" placeholder="Enter 6-digit code to verify" required>
                         <button class="btn btn-primary" type="submit">Enable MFA</button>

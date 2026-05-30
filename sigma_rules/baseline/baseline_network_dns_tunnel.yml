@@ -1,0 +1,17 @@
+title: Baseline Potential DNS Tunnel Flow
+id: forensis-baseline-network-004
+status: experimental
+description: Detects large DNS payload transfer profiles associated with DNS tunneling behavior.
+author: Forensis
+date: 2026-05-30
+logsource:
+  category: network
+detection:
+  selection_port:
+    dst_port|eq: 53
+  selection_volume:
+    bytes|gte: 6000
+  selection_packets:
+    packets|gte: 30
+  condition: selection_port and selection_volume and selection_packets
+level: high

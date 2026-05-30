@@ -1,0 +1,17 @@
+title: Baseline Mimikatz Memory Indicator
+id: forensis-baseline-memory-001
+status: stable
+description: Detects Mimikatz and sekurlsa-related strings in memory triage events.
+author: Forensis
+date: 2026-05-30
+logsource:
+  category: memory
+detection:
+  selection:
+    message|contains:
+      - "*mimikatz*"
+      - "*sekurlsa::*"
+      - "*lsadump::*"
+      - "*pypykatz*"
+  condition: selection
+level: critical

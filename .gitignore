@@ -8,3 +8,4 @@ uploads/
 .DS_Store
 sigma_rules/_sigmahq_baseline/
 sigma_rules/_remote/
+threat_intel/lookup_cache.json

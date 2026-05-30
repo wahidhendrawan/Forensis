@@ -25,11 +25,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (icon) {
             if (theme === 'dark') {
                 icon.className = 'fas fa-sun';
-                if (label) label.textContent = 'Dark';
+                if (label) label.textContent = 'Light';
                 if (toggle) toggle.setAttribute('aria-label', 'Switch to light mode');
             } else {
                 icon.className = 'fas fa-moon';
-                if (label) label.textContent = 'Light';
+                if (label) label.textContent = 'Dark';
                 if (toggle) toggle.setAttribute('aria-label', 'Switch to dark mode');
             }
         }

