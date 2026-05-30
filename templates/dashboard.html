@@ -127,9 +127,13 @@
                 <h5 class="mb-0 fw-bold text-primary"><i class="fas fa-sync-alt me-2"></i>Sigma Engine Rules</h5>
             </div>
             <div class="card-body">
-                <p class="small text-secondary mb-4">Pull latest community threat signatures to enhance detection capabilities.</p>
+                <p class="small text-secondary mb-4">
+                    Built-in SigmaHQ baseline is active (commit <code>994da16651194500b607a3007186c29779e1f961</code>).
+                    Add remote rule repositories below to extend detections.
+                </p>
                 
                 <form method="POST" action="{{ url_for('sigma_sync') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <div class="mb-3">
                         <label class="form-label small fw-bold text-muted">Remote Repository URLs</label>
                         <textarea name="sigma_urls" class="form-control bg-dark border-0 text-light" rows="3" placeholder="https://raw.githubusercontent.com/..."></textarea>

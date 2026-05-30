@@ -19,9 +19,9 @@ Sigma correlation, and secure user administration.
 - Run Sigma correlation against network events.
 - Export results to JSON and CSV.
 
-### 3. Memory Triage
+### 3. Memory
 - Dedicated triage page separate from Helper.
-- Accept raw paste or uploads in: TXT, LOG, JSON, NDJSON/JSONL, CSV, TSV, XML, YAML, ZIP.
+- Accept raw paste or uploads in: TXT, LOG, JSON, NDJSON/JSONL, CSV, TSV, XML, YAML, ZIP, VMEM, MEM.
 - Parse mixed memory tool output and surface suspicious indicators with severity.
 - Provide follow-up recommendations and export to JSON/CSV.
 
@@ -31,7 +31,9 @@ Sigma correlation, and secure user administration.
 - Optimized for fast triage handoff and repeatable analyst workflow.
 
 ### 5. Sigma Engine and Rule Management
-- Local Sigma rule correlation for logs and network artifacts.
+- Built-in SigmaHQ baseline ruleset from repository `SigmaHQ/sigma`, pinned to commit `994da16651194500b607a3007186c29779e1f961` (`rules/` path).
+- Automatic local baseline cache bootstrap on startup (no manual sync required for core rules).
+- Local Sigma rule correlation for logs, network, and memory artifacts.
 - Dashboard actions to sync Sigma rules from remote URLs.
 - Rule reload support without restarting the full stack.
 
@@ -66,6 +68,11 @@ FORENSIS_ADMIN_USER=admin
 FORENSIS_ADMIN_PASSWORD=forensis123
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/0
+# Optional SigmaHQ baseline controls
+# FORENSIS_SIGMAHQ_REPO=SigmaHQ/sigma
+# FORENSIS_SIGMAHQ_COMMIT=994da16651194500b607a3007186c29779e1f961
+# FORENSIS_SIGMAHQ_RULES_SUBDIR=rules
+# FORENSIS_SIGMAHQ_REFRESH=0
 ```
 
 3. Build and run:
@@ -100,6 +107,8 @@ python app.py
 - `http://127.0.0.1:5000`
 
 ## Main Routes
+- `/` (redirects to `/login`)
+- `/login`
 - `/dashboard`
 - `/log-analyzer`
 - `/network-analyzer`

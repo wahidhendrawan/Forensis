@@ -28,8 +28,8 @@
                             <label class="form-label fw-bold">Investigation Category</label>
                             <select name="category" class="form-select" id="categorySelect">
                                 <option value="memory">Memory Analysis</option>
-                                <option value="network">Network Intrusion</option>
-                                <option value="logs">Web Log Forensics</option>
+                                <option value="network">Network Analysis</option>
+                                <option value="logs">Logs Analysis</option>
                             </select>
                         </div>
                         <div class="col-md-5">
@@ -92,9 +92,10 @@
             <div class="card h-100 border-start border-4 border-info">
                 <div class="card-body">
                     <h6 class="text-uppercase text-muted small fw-bold mb-3">{{ step.focus }}</h6>
-                    {% for cmd in step.commands %}
+                    {% for command in step.commands %}
                     <div class="mb-2">
-                        <code class="d-block p-2 bg-black text-info small">{{ cmd }}</code>
+                        <code class="d-block p-2 bg-black text-info small">{{ command.cmd }}</code>
+                        <div class="small text-muted mt-1">{{ command.desc }}</div>
                     </div>
                     {% endfor %}
                 </div>
@@ -114,10 +115,14 @@
             {val: "macos.quicktriage", label: "macOS Quick Triage"}
         ],
         "network": [
-            {val: "intrusion_detection", label: "General Intrusion Detection"}
+            {val: "network.analysis.baseline", label: "Network Baseline Analysis"},
+            {val: "network.c2_hunting", label: "C2 Hunting"},
+            {val: "intrusion_detection", label: "Legacy Intrusion Detection"}
         ],
         "logs": [
-            {val: "web_attack", label: "Web Server Attack Analysis"}
+            {val: "web_attack", label: "Web Attack Analysis"},
+            {val: "auth_compromise", label: "Authentication Compromise"},
+            {val: "endpoint_detection", label: "Endpoint Threat Detection"}
         ]
     };
 

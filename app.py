@@ -3,7 +3,9 @@ import io
 import csv
 import json
 import zipfile
+import re
 import base64
+import secrets
 import pyotp
 import qrcode
 import magic
@@ -45,10 +47,15 @@ DB_PATH = os.path.join(BASE_DIR, "instance", "forensis.db")
 
 ALLOWED_LOG_EXT = {"log", "txt", "csv", "json"}
 ALLOWED_PCAP_EXT = {"pcap", "pcapng"}
-ALLOWED_MEMORY_EXT = {"txt", "log", "json", "jsonl", "ndjson", "csv", "tsv", "xml", "yaml", "yml", "zip"}
+ALLOWED_MEMORY_EXT = {"txt", "log", "json", "jsonl", "ndjson", "csv", "tsv", "xml", "yaml", "yml", "zip", "vmem", "mem"}
 VALID_USER_ROLES = {"admin", "analyst"}
-MEMORY_ARCHIVE_MAX_BYTES = 25 * 1024 * 1024
+MEMORY_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024
 MEMORY_FILE_MAX_BYTES = 8 * 1024 * 1024
+MEMORY_TEXT_MAX_BYTES = 50 * 1024 * 1024
+MEMORY_IMAGE_MAX_BYTES = 256 * 1024 * 1024
+MEMORY_IMAGE_SCAN_BYTES = 64 * 1024 * 1024
+MEMORY_STRINGS_MIN_LEN = 6
+MEMORY_STRINGS_MAX_LINES = 20000
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FORENSIS_SECRET_KEY", "change-me-in-production")
@@ -76,7 +83,10 @@ celery = make_celery(app)
 
 @app.context_processor
 def inject_now():
-    return {'now_year': datetime.utcnow().year}
+    return {
+        "now_year": datetime.utcnow().year,
+        "csrf_token": _get_csrf_token(),
+    }
 
 @app.after_request
 def set_secure_headers(response):
@@ -104,6 +114,40 @@ def load_user(user_id):
 
 def allowed_file(filename, allowed_ext):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in allowed_ext
+
+def _get_csrf_token() -> str:
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return token
+
+def _is_valid_csrf_token(token: str) -> bool:
+    current = session.get("_csrf_token")
+    if not token or not current:
+        return False
+    return secrets.compare_digest(token, current)
+
+def _require_csrf() -> bool:
+    token = request.form.get("csrf_token", "")
+    if _is_valid_csrf_token(token):
+        return True
+    flash("Invalid form token. Please retry.", "danger")
+    return False
+
+def _build_upload_path(original_name: str):
+    clean_name = secure_filename(original_name)
+    if not clean_name:
+        clean_name = "artifact.bin"
+    unique_name = f"{secrets.token_hex(8)}_{clean_name}"
+    return clean_name, os.path.join(app.config["UPLOAD_FOLDER"], unique_name), unique_name
+
+def _safe_unlink(path: str):
+    try:
+        if path and os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        pass
 
 def is_safe_content(path: str, category: str) -> bool:
     try:
@@ -156,26 +200,75 @@ def _helper_cheatsheets():
         ],
     }
 
+def _extract_printable_strings(blob: bytes, min_len: int = MEMORY_STRINGS_MIN_LEN):
+    ascii_pat = re.compile(rb"[\x20-\x7e]{%d,}" % min_len)
+    utf16_pat = re.compile(rb"(?:[\x20-\x7e]\x00){%d,}" % min_len)
+
+    strings = []
+    seen = set()
+
+    for match in ascii_pat.finditer(blob):
+        text = match.group().decode("ascii", errors="ignore").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        strings.append(text)
+        if len(strings) >= MEMORY_STRINGS_MAX_LINES:
+            return strings
+
+    for match in utf16_pat.finditer(blob):
+        raw = match.group()
+        text = raw.decode("utf-16le", errors="ignore").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        strings.append(text)
+        if len(strings) >= MEMORY_STRINGS_MAX_LINES:
+            return strings
+
+    return strings
+
+
+def _read_memory_image_strings(path: str) -> str:
+    size = os.path.getsize(path)
+    with open(path, "rb") as f:
+        data = f.read(MEMORY_IMAGE_SCAN_BYTES)
+    lines = _extract_printable_strings(data)
+    if not lines:
+        return ""
+    header = f"# memory_image_scan_bytes={len(data)} of total_bytes={size}\n"
+    return header + "\n".join(lines)
+
+
 def _read_memory_input(path: str, filename: str) -> str:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext in {"vmem", "mem"}:
+        return _read_memory_image_strings(path)
+
     if ext != "zip":
         with open(path, "r", errors="ignore") as f:
             return f.read()
 
     chunks = []
-    allowed_inner_ext = {"txt", "log", "json", "jsonl", "ndjson", "csv", "tsv", "xml", "yaml", "yml"}
+    allowed_inner_ext = {"txt", "log", "json", "jsonl", "ndjson", "csv", "tsv", "xml", "yaml", "yml", "vmem", "mem"}
     with zipfile.ZipFile(path, "r") as zf:
         for info in zf.infolist():
             if info.is_dir():
                 continue
-            if info.file_size > MEMORY_FILE_MAX_BYTES:
-                continue
             inner_name = info.filename
             inner_ext = inner_name.rsplit(".", 1)[-1].lower() if "." in inner_name else ""
+            max_allowed = MEMORY_IMAGE_MAX_BYTES if inner_ext in {"vmem", "mem"} else MEMORY_FILE_MAX_BYTES
+            if info.file_size > max_allowed:
+                continue
             if inner_ext not in allowed_inner_ext:
                 continue
             data = zf.read(info)
-            text = data.decode("utf-8", errors="ignore").strip()
+
+            if inner_ext in {"vmem", "mem"}:
+                text = "\n".join(_extract_printable_strings(data[:MEMORY_IMAGE_SCAN_BYTES])).strip()
+            else:
+                text = data.decode("utf-8", errors="ignore").strip()
+
             if not text:
                 continue
             chunks.append(f"# file: {inner_name}\n{text}")
@@ -269,7 +362,7 @@ def setup_mfa():
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return redirect(url_for("login"))
 
 @app.route("/dashboard")
 @login_required
@@ -508,6 +601,8 @@ def delete_group(group_id):
 @app.route("/sigma/refresh", methods=["POST"])
 @login_required
 def sigma_refresh():
+    if not _require_csrf():
+        return _safe_redirect(request.referrer)
     sigma_engine.reload_rules()
     flash("Sigma rules reloaded from local and remote directories.", "success")
     return _safe_redirect(request.referrer)
@@ -515,22 +610,27 @@ def sigma_refresh():
 @app.route("/sigma/sync", methods=["POST"])
 @login_required
 def sigma_sync():
+    if not _require_csrf():
+        return _safe_redirect(request.referrer)
     urls_raw = request.form.get("sigma_urls", "").strip()
     env_urls = os.getenv("FORENSIS_SIGMA_URLS", "").strip()
     urls = []
 
     if urls_raw:
-        urls.extend([u.strip() for u in urls_raw.split(",") if u.strip()])
+        urls.extend([u.strip() for u in re.split(r"[\n,]+", urls_raw) if u.strip()])
     elif env_urls:
-        urls.extend([u.strip() for u in env_urls.split(",") if u.strip()])
+        urls.extend([u.strip() for u in re.split(r"[\n,]+", env_urls) if u.strip()])
 
     if not urls:
         flash("No Sigma URLs provided.", "warning")
         return _safe_redirect(request.referrer)
 
-    sigma_engine.sync_from_urls(urls)
+    imported_count = sigma_engine.sync_from_urls(urls)
     sigma_engine.reload_rules()
-    flash(f"Sigma rules synchronized from {len(urls)} URL(s).", "success")
+    if imported_count:
+        flash(f"Sigma rules synchronized. Imported {imported_count} valid rule file(s).", "success")
+    else:
+        flash("No valid Sigma rule file imported from provided URLs.", "warning")
     return _safe_redirect(request.referrer)
 
 @celery.task(name="app.process_logs_task")
@@ -545,13 +645,37 @@ def process_logs_task(log_text, log_type, filename, user_id):
 
 @celery.task(name="app.process_network_task")
 def process_network_task(path, filename, user_id):
-    results = analyze_pcap(path)
-    events = results.get("events", [])
-    ship_events(events, "network")
-    history = AnalysisHistory(type="network", user_id=user_id, results_json=json.dumps(results, default=str), filename=filename)
-    db.session.add(history)
-    db.session.commit()
-    return history.id
+    try:
+        results = analyze_pcap(path)
+        events = results.get("events", [])
+        ship_events(events, "network")
+        history = AnalysisHistory(type="network", user_id=user_id, results_json=json.dumps(results, default=str), filename=filename)
+        db.session.add(history)
+        db.session.commit()
+        return history.id
+    finally:
+        _safe_unlink(path)
+
+@celery.task(name="app.process_memory_task")
+def process_memory_task(path, stored_filename, input_name, user_id):
+    try:
+        raw_output = _read_memory_input(path, stored_filename)
+        parsed_output = analyze_generic_output(raw_output, input_name=input_name)
+        events = parsed_output.get("events", [])
+        results = {
+            "mode": "triage",
+            "summary": parsed_output.get("summary"),
+            "events": events,
+            "parsed_output": parsed_output,
+            "input_name": input_name,
+        }
+        ship_events(events, "memory")
+        history = AnalysisHistory(type="memory_triage", user_id=user_id, results_json=json.dumps(results, default=str), filename=input_name)
+        db.session.add(history)
+        db.session.commit()
+        return history.id
+    finally:
+        _safe_unlink(path)
 
 @app.route("/task/status/<task_id>")
 @login_required
@@ -579,15 +703,17 @@ def log_analyzer():
             if not allowed_file(file.filename, ALLOWED_LOG_EXT):
                 flash("Unsupported extension.", "danger")
                 return _safe_redirect(request.url, "log_analyzer")
-            filename = secure_filename(file.filename)
-            path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            filename, path, _ = _build_upload_path(file.filename)
             file.save(path)
             if not is_safe_content(path, "log"):
-                os.remove(path)
+                _safe_unlink(path)
                 flash("Invalid content.", "danger")
                 return _safe_redirect(request.url, "log_analyzer")
-            with open(path, "r", errors="ignore") as f:
-                log_text = f.read()
+            try:
+                with open(path, "r", errors="ignore") as f:
+                    log_text = f.read()
+            finally:
+                _safe_unlink(path)
         if not log_text:
             flash("Provide log data.", "warning")
             return _safe_redirect(request.url, "log_analyzer")
@@ -603,11 +729,13 @@ def network_analyzer():
         if not file or not file.filename:
             flash("Upload a PCAP file.", "warning")
             return _safe_redirect(request.url, "network_analyzer")
-        filename = secure_filename(file.filename)
-        path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        if not allowed_file(file.filename, ALLOWED_PCAP_EXT):
+            flash("Unsupported PCAP extension.", "danger")
+            return _safe_redirect(request.url, "network_analyzer")
+        filename, path, _ = _build_upload_path(file.filename)
         file.save(path)
         if not is_safe_content(path, "pcap"):
-            os.remove(path)
+            _safe_unlink(path)
             flash("Invalid PCAP.", "danger")
             return _safe_redirect(request.url, "network_analyzer")
         task = process_network_task.delay(path, filename, current_user.id)
@@ -665,47 +793,48 @@ def memory_triage():
         raw_output = request.form.get("raw_output", "").strip()
         file = request.files.get("memory_file")
         filename = None
+        stored_filename = None
+        path = None
 
         if file and file.filename:
             if not allowed_file(file.filename, ALLOWED_MEMORY_EXT):
                 flash("Unsupported memory output extension.", "danger")
                 return _safe_redirect(request.url, "memory_triage")
 
-            filename = secure_filename(file.filename)
-            path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            filename, path, stored_filename = _build_upload_path(file.filename)
             file.save(path)
-            if os.path.getsize(path) > MEMORY_ARCHIVE_MAX_BYTES:
-                os.remove(path)
+            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+            max_size = MEMORY_TEXT_MAX_BYTES
+            if ext in {"vmem", "mem"}:
+                max_size = MEMORY_IMAGE_MAX_BYTES
+            elif ext == "zip":
+                max_size = MEMORY_ARCHIVE_MAX_BYTES
+
+            if os.path.getsize(path) > max_size:
+                _safe_unlink(path)
                 flash("Uploaded file is too large.", "danger")
                 return _safe_redirect(request.url, "memory_triage")
 
             if not is_safe_content(path, "memory_output"):
-                os.remove(path)
+                _safe_unlink(path)
                 flash("Invalid memory output format.", "danger")
                 return _safe_redirect(request.url, "memory_triage")
+        else:
+            if raw_output:
+                if len(raw_output.encode("utf-8")) > MEMORY_TEXT_MAX_BYTES:
+                    flash("Input text is too large.", "danger")
+                    return _safe_redirect(request.url, "memory_triage")
+                filename = "pasted_memory_output.txt"
+                _, path, stored_filename = _build_upload_path(filename)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(raw_output)
 
-            try:
-                raw_output = _read_memory_input(path, filename)
-            except Exception:
-                flash("Failed to parse uploaded memory artifact.", "danger")
-                return _safe_redirect(request.url, "memory_triage")
-
-        if not raw_output:
+        if not path or not stored_filename or not filename:
             flash("No data.", "warning")
             return _safe_redirect(request.url, "memory_triage")
 
-        parsed_output = analyze_generic_output(raw_output, input_name=filename)
-        events = parsed_output.get("events", [])
-        results = {
-            "mode": "triage",
-            "summary": parsed_output.get("summary"),
-            "events": events,
-            "parsed_output": parsed_output,
-            "input_name": filename,
-        }
-        LAST_RESULTS["memory"] = results
-        ship_events(events, "memory")
-        save_history("memory_triage", results, filename)
+        task = process_memory_task.delay(path, stored_filename, filename, current_user.id)
+        return redirect(url_for("task_status", task_id=task.id))
 
     return render_template(
         "memory_triage.html",
@@ -751,26 +880,32 @@ def view_history(id):
              )
          if analysis.type == "memory_triage":
              parsed_output = results.get("parsed_output") or results
+             sigma_matches = sigma_engine.correlate_events(results.get("events", []))
              return render_template(
                  "memory_triage.html",
                  parsed_output=parsed_output,
+                 sigma_matches=sigma_matches,
                  historical=True,
              )
          parsed_output = results.get("parsed_output")
          if parsed_output is None and results.get("summary") is not None:
              parsed_output = results
+         sigma_matches = sigma_engine.correlate_events(results.get("events", []))
          if parsed_output is not None:
              return render_template(
                  "memory_triage.html",
                  parsed_output=parsed_output,
+                 sigma_matches=sigma_matches,
                  historical=True,
              )
          return redirect(url_for("history"))
     return redirect(url_for('history'))
 
-@app.route("/history/delete/<int:id>")
+@app.route("/history/delete/<int:id>", methods=["POST"])
 @login_required
 def delete_history(id):
+    if not _require_csrf():
+        return redirect(url_for("history"))
     analysis = db.session.get(AnalysisHistory, id)
     if analysis and (current_user.role == "admin" or analysis.user_id == current_user.id):
         db.session.delete(analysis)
@@ -780,10 +915,12 @@ def delete_history(id):
         flash("Permission denied.", "danger")
     return redirect(url_for('history'))
 
-@app.route("/reset_data")
+@app.route("/reset_data", methods=["POST"])
 @login_required
 @admin_required
 def reset_data():
+    if not _require_csrf():
+        return _safe_redirect(request.referrer, "dashboard")
     AnalysisHistory.query.delete()
     db.session.commit()
     flash("History reset.", "success")
@@ -880,6 +1017,8 @@ def export_network(fmt: str):
             "packets",
             "bytes",
             "duration",
+            "first_seen",
+            "last_seen",
             "avg_payload",
         ]
         resp = _export_events_csv(events, fieldnames, "forensis_network.csv")

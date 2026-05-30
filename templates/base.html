@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forensis - Threat Analysis Platform</title>
+    <title>Forensis - Threat Analysis & Forensics</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="{{ url_for('static', filename='styles.css') }}" rel="stylesheet">
@@ -32,7 +32,7 @@
                         <a class="nav-link" href="{{ url_for('network_analyzer') }}"><i class="fas fa-network-wired me-1"></i> Network</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('memory_triage') }}"><i class="fas fa-memory me-1"></i> Memory Triage</a>
+                        <a class="nav-link" href="{{ url_for('memory_triage') }}"><i class="fas fa-memory me-1"></i> Memory</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('memory_helper') }}"><i class="fas fa-toolbox me-1"></i> Helper</a>
@@ -59,7 +59,14 @@
                             <li><span class="dropdown-header">Role: {{ current_user.role|capitalize }}</span></li>
                             <li><hr class="dropdown-divider"></li>
                             {% if current_user.role == 'admin' %}
-                            <li><a class="dropdown-item text-danger" href="{{ url_for('reset_data') }}" onclick="return confirm('WARNING: This will delete ALL analysis history. Continue?')"><i class="fas fa-trash me-2"></i> Reset Data</a></li>
+                            <li>
+                                <form method="post" action="{{ url_for('reset_data') }}" onsubmit="return confirm('WARNING: This will delete ALL analysis history. Continue?')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                    <button type="submit" class="dropdown-item text-danger">
+                                        <i class="fas fa-trash me-2"></i> Reset Data
+                                    </button>
+                                </form>
+                            </li>
                             {% endif %}
                             <li><a class="dropdown-item" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt me-2"></i> Logout</a></li>
                         </ul>

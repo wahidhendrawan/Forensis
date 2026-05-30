@@ -45,12 +45,31 @@
               <li>Total packets: <strong>{{ results.summary.total_packets }}</strong></li>
               <li>Flows: <strong>{{ results.summary.flow_count }}</strong></li>
               <li>Anomalies: <strong>{{ results.summary.anomaly_count }}</strong></li>
+              {% if results.summary.threat_score is defined %}
+              <li>Threat score: <strong>{{ results.summary.threat_score }}</strong></li>
+              {% endif %}
+              {% if results.summary.first_seen %}
+              <li>First seen: <strong>{{ results.summary.first_seen }}</strong></li>
+              {% endif %}
+              {% if results.summary.last_seen %}
+              <li>Last seen: <strong>{{ results.summary.last_seen }}</strong></li>
+              {% endif %}
             {% endif %}
           </ul>
         </div>
       </div>
     </div>
   </div>
+
+  {% if results.summary.severity_counts %}
+  <div class="mb-3 d-flex gap-2 flex-wrap">
+    {% for severity, count in results.summary.severity_counts.items() %}
+    <span class="badge {% if severity == 'critical' %}bg-danger{% elif severity == 'high' %}bg-warning text-dark{% elif severity == 'medium' %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+      {{ severity|upper }}: {{ count }}
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   {% if results.anomalies %}
     <h5 class="mb-2 text-danger">Suspicious Flows</h5>
@@ -66,6 +85,8 @@
             <th>Packets</th>
             <th>Bytes</th>
             <th>Duration (s)</th>
+            <th>First Seen (UTC)</th>
+            <th>Last Seen (UTC)</th>
           </tr>
         </thead>
         <tbody class="small">
@@ -79,6 +100,8 @@
               <td>{{ a.flow.packets }}</td>
               <td>{{ a.flow.bytes }}</td>
               <td>{{ '%.2f'|format(a.flow.duration) }}</td>
+              <td>{{ a.flow.first_seen or '-' }}</td>
+              <td>{{ a.flow.last_seen or '-' }}</td>
             </tr>
           {% endfor %}
         </tbody>
@@ -98,7 +121,10 @@
           <th style="cursor:pointer" onclick="sortTable(4)">Proto <i class="fas fa-sort small text-muted"></i></th>
           <th style="cursor:pointer" onclick="sortTable(5, true)">Packets <i class="fas fa-sort small text-muted"></i></th>
           <th style="cursor:pointer" onclick="sortTable(6, true)">Bytes <i class="fas fa-sort small text-muted"></i></th>
-          <th style="cursor:pointer" onclick="sortTable(7, true)">Avg Payload <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(7, true)">Duration (s) <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(8)">First Seen (UTC) <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(9)">Last Seen (UTC) <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(10, true)">Avg Payload <i class="fas fa-sort small text-muted"></i></th>
         </tr>
       </thead>
       <tbody class="small">
@@ -111,10 +137,13 @@
             <td>{{ f.proto }}</td>
             <td>{{ f.packets }}</td>
             <td>{{ f.bytes }}</td>
+            <td>{{ '%.2f'|format(f.duration) }}</td>
+            <td>{{ f.first_seen or '-' }}</td>
+            <td>{{ f.last_seen or '-' }}</td>
             <td>{{ '%.1f'|format(f.avg_payload) }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="8" class="text-muted text-center">No flows parsed.</td></tr>
+          <tr><td colspan="11" class="text-muted text-center">No flows parsed.</td></tr>
         {% endfor %}
       </tbody>
     </table>

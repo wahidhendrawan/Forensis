@@ -90,6 +90,24 @@
     </div>
 </div>
 
+{% if results.summary.threat_score is defined %}
+<div class="alert {% if results.summary.threat_score >= 25 %}alert-danger{% elif results.summary.threat_score >= 10 %}alert-warning{% else %}alert-info{% endif %} d-flex justify-content-between align-items-center">
+    <div>
+        <strong>Threat Score:</strong> {{ results.summary.threat_score }}
+        <span class="ms-3"><strong>Malicious Pattern Hits:</strong> {{ results.summary.malicious_pattern_hits|default(results.summary.anomaly_count) }}</span>
+    </div>
+    {% if results.summary.severity_counts %}
+    <div class="d-flex gap-2 flex-wrap">
+        {% for severity, count in results.summary.severity_counts.items() %}
+        <span class="badge {% if severity == 'critical' %}bg-danger{% elif severity == 'high' %}bg-warning text-dark{% elif severity == 'medium' %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+            {{ severity|upper }}: {{ count }}
+        </span>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
 {% if sigma_matches %}
 <div class="card border-danger mb-4">
     <div class="card-header bg-danger text-white">Sigma Rule Matches</div>
