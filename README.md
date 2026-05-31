@@ -230,6 +230,8 @@ python scripts/migrate_sqlite_to_postgres.py \
   --postgres-uri postgresql+psycopg://forensis:forensis_change_me@localhost:5432/forensis
 ```
 
+The migration script truncates destination tables, copies rows, and realigns PostgreSQL ID sequences to prevent duplicate primary-key inserts.
+
 ## Job Pipeline (Event-Driven)
 
 For every uploaded artifact, Forensis creates:
