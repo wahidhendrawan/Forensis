@@ -33,6 +33,12 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 from celery import Celery
+try:
+    from alembic import command as alembic_command
+    from alembic.config import Config as AlembicConfig
+except Exception:  # pragma: no cover - optional in early bootstrap
+    alembic_command = None  # type: ignore
+    AlembicConfig = None  # type: ignore
 
 from forensis.models import (
     db,
@@ -68,6 +74,14 @@ from forensis.services.job_service import (
     get_job_by_task_id,
     persist_dfir_outputs,
 )
+from forensis.services.event_search_service import (
+    search_events_opensearch,
+    search_events_history_fallback,
+)
+from forensis.services.analytics_service import (
+    clickhouse_overview,
+    history_overview_fallback,
+)
 
 load_dotenv()
 
@@ -91,6 +105,18 @@ def _env_int(name: str, default: int, min_value: int = None, max_value: int = No
     if max_value is not None and value > max_value:
         value = max_value
     return value
+
+
+def _to_int(value: str, default: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int((value or "").strip())
+    except Exception:
+        parsed = int(default)
+    if parsed < min_value:
+        parsed = min_value
+    if parsed > max_value:
+        parsed = max_value
+    return parsed
 
 ALLOWED_LOG_EXT = {"log", "txt", "csv", "json"}
 ALLOWED_PCAP_EXT = {"pcap", "pcapng"}
@@ -1333,6 +1359,65 @@ def api_job_detail(job_id):
     } if artifact else None
     return jsonify(payload)
 
+
+@app.route("/api/search/events")
+@login_required
+def api_search_events():
+    query_text = (request.args.get("q") or "").strip()
+    source_type = (request.args.get("source_type") or "").strip().lower()
+    since_minutes = _to_int(request.args.get("since_minutes", "120"), default=120, min_value=5, max_value=10080)
+    limit = _to_int(request.args.get("limit", "100"), default=100, min_value=1, max_value=500)
+    prefer_backend = (request.args.get("backend") or "").strip().lower()
+
+    result = {"backend": "", "items": [], "count": 0}
+    use_history_only = prefer_backend == "history"
+
+    if not use_history_only:
+        os_result = search_events_opensearch(
+            query=query_text,
+            source_type=source_type,
+            since_minutes=since_minutes,
+            limit=limit,
+        )
+        if os_result.get("count", 0) > 0 or os_result.get("backend") == "opensearch":
+            result = os_result
+
+    if result.get("count", 0) <= 0:
+        result = search_events_history_fallback(
+            current_user=current_user,
+            query=query_text,
+            source_type=source_type,
+            since_minutes=since_minutes,
+            limit=limit,
+        )
+
+    return jsonify(
+        {
+            "backend": result.get("backend"),
+            "count": int(result.get("count", 0)),
+            "items": result.get("items", []),
+            "since_minutes": since_minutes,
+            "limit": limit,
+        }
+    )
+
+
+@app.route("/api/analytics/overview")
+@login_required
+def api_analytics_overview():
+    since_minutes = _to_int(request.args.get("since_minutes", "1440"), default=1440, min_value=5, max_value=43200)
+    preferred = (request.args.get("backend") or "").strip().lower()
+
+    if preferred == "history":
+        data = history_overview_fallback(current_user=current_user, since_minutes=since_minutes)
+    else:
+        data = clickhouse_overview(since_minutes=since_minutes)
+        if not data.get("enabled") or data.get("errors"):
+            data = history_overview_fallback(current_user=current_user, since_minutes=since_minutes)
+
+    data["since_minutes"] = since_minutes
+    return jsonify(data)
+
 @app.route("/log-analyzer", methods=["GET", "POST"])
 @login_required
 def log_analyzer():
@@ -1800,8 +1885,13 @@ def export_report_bundle():
         "env": {
             "FORENSIS_ELASTIC_URL": os.getenv("FORENSIS_ELASTIC_URL", ""),
             "FORENSIS_ELASTIC_INDEX": os.getenv("FORENSIS_ELASTIC_INDEX", ""),
+            "FORENSIS_OPENSEARCH_URL": os.getenv("FORENSIS_OPENSEARCH_URL", ""),
+            "FORENSIS_OPENSEARCH_INDEX": os.getenv("FORENSIS_OPENSEARCH_INDEX", ""),
             "FORENSIS_LOKI_URL": os.getenv("FORENSIS_LOKI_URL", ""),
             "FORENSIS_LOKI_LABELS": os.getenv("FORENSIS_LOKI_LABELS", ""),
+            "FORENSIS_CLICKHOUSE_URL": os.getenv("FORENSIS_CLICKHOUSE_URL", ""),
+            "FORENSIS_CLICKHOUSE_DB": os.getenv("FORENSIS_CLICKHOUSE_DB", ""),
+            "FORENSIS_CLICKHOUSE_TABLE": os.getenv("FORENSIS_CLICKHOUSE_TABLE", ""),
             "FORENSIS_SIGMA_URLS": os.getenv("FORENSIS_SIGMA_URLS", ""),
         },
     }
@@ -1857,7 +1947,24 @@ def export_report_bundle():
     return resp
 
 def _bootstrap_database():
-    db.create_all()
+    use_alembic = os.getenv("FORENSIS_USE_ALEMBIC", "1").strip().lower() in {"1", "true", "yes", "on"}
+    if use_alembic and alembic_command and AlembicConfig:
+        try:
+            alembic_ini = os.path.join(BASE_DIR, "alembic.ini")
+            cfg = AlembicConfig(alembic_ini)
+            cfg.set_main_option("script_location", os.path.join(BASE_DIR, "migrations"))
+            cfg.set_main_option("sqlalchemy.url", app.config.get("SQLALCHEMY_DATABASE_URI", db_uri))
+            alembic_command.upgrade(cfg, "head")
+        except Exception as exc:
+            app.logger.warning("Alembic upgrade failed, attempting legacy stamp. reason=%s", exc)
+            try:
+                alembic_command.stamp(cfg, "head")
+                alembic_command.upgrade(cfg, "head")
+            except Exception as stamp_exc:
+                app.logger.warning("Alembic stamp failed; fallback to create_all. reason=%s", stamp_exc)
+                db.create_all()
+    else:
+        db.create_all()
     _ensure_runtime_indexes()
     admin_user = os.getenv("FORENSIS_ADMIN_USER", "admin")
     if not User.query.filter_by(username=admin_user).first():

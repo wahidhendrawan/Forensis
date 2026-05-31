@@ -13,6 +13,7 @@ Forensis now uses a service-oriented internal architecture (modular monolith bas
   - endpoints: `/api/cases`, `/api/jobs`, `/api/jobs/<id>`, `/api/jobs/<task_id>/status`.
 - **analysis-workers** responsibilities:
   - dedicated Celery workers for `logs`, `network`, and `memory` analysis jobs.
+  - queue-separated workers (`logs`, `network`, `memory`, `rules`) ready for queue-depth autoscaling.
   - staged pipeline: `queued -> parse -> enrich -> persist -> post_rule_match -> complete/failed`.
 - **rule-service** responsibilities:
   - Sigma/YARA enrichment orchestration and correlation limits.
@@ -43,6 +44,16 @@ These entities are persisted and linked per investigation to support reliable cr
   - better indexing, query planning, and operational tooling,
   - safer growth path for case/finding/timeline scale.
 - SQLite remains supported for lightweight deployments and development.
+
+### Migration Versioning
+
+- Alembic is included for DB schema versioning.
+- Migration sources:
+  - `alembic.ini`
+  - `migrations/`
+- CI drift guard:
+  - `scripts/check_migration_drift.py`
+  - `.github/workflows/ci.yml`
 
 ## Key Capabilities
 
@@ -89,7 +100,12 @@ These entities are persisted and linked per investigation to support reliable cr
 - **Entity Baseline & Allowlist** per environment (`config/entity_baseline.json`, `config/entity_allowlist.json`).
 - **Rule QA Pipeline** with benign/malicious datasets and automated regression checks (`scripts/rule_qa.py`).
 
-### 7. Users and Administration
+### 7. Event Search and Analytics Storage
+- **OpenSearch** sink for indexed event search at scale.
+- **ClickHouse** sink for high-volume event analytics and timeline aggregations.
+- Search API supports OpenSearch backend + database fallback.
+
+### 8. Users and Administration
 - Role-based access control (Admin and Analyst).
 - User CRUD and group administration.
 - Built-in MFA (TOTP) setup, disable, and reset flows.
@@ -97,7 +113,7 @@ These entities are persisted and linked per investigation to support reliable cr
 - OTX API key management in admin panel with masked display and clear/rotate controls.
 - CSRF protection for sensitive POST operations (administration and analyzer actions).
 
-### 8. History and Reporting
+### 9. History and Reporting
 - Persist analysis history for logs, network, memory playbooks, and memory triage.
 - View, delete, and review previous sessions.
 - Export report bundle from current in-memory result set.
@@ -110,6 +126,7 @@ These entities are persisted and linked per investigation to support reliable cr
 - Celery + Redis (async processing)
 - YARA (via `yara-python`)
 - Gunicorn (WSGI runtime)
+- Alembic (schema migrations)
 - Bootstrap 5 frontend
 
 ## Quick Start
@@ -152,6 +169,18 @@ CELERY_RESULT_BACKEND=redis://redis:6379/0
 # FORENSIS_PCAP_MAX_TRACKED_FLOWS=250000
 # Optional DB backend (example PostgreSQL)
 # FORENSIS_DB_URI=postgresql+psycopg://forensis:forensis_change_me@postgres:5432/forensis
+# Optional OpenSearch sink/search
+# FORENSIS_OPENSEARCH_URL=http://opensearch:9200
+# FORENSIS_OPENSEARCH_INDEX=forensis-events
+# FORENSIS_OPENSEARCH_USERNAME=
+# FORENSIS_OPENSEARCH_PASSWORD=
+# FORENSIS_OPENSEARCH_VERIFY_TLS=false
+# Optional ClickHouse sink/analytics
+# FORENSIS_CLICKHOUSE_URL=http://clickhouse:8123
+# FORENSIS_CLICKHOUSE_DB=forensis
+# FORENSIS_CLICKHOUSE_TABLE=events
+# FORENSIS_CLICKHOUSE_USERNAME=
+# FORENSIS_CLICKHOUSE_PASSWORD=
 # Optional SQLAlchemy pool tuning for PostgreSQL
 # FORENSIS_DB_POOL_SIZE=20
 # FORENSIS_DB_POOL_MAX_OVERFLOW=40
@@ -203,6 +232,10 @@ python app.py
 - `/history`
 - `/users`
 
+Additional APIs:
+- `/api/search/events`
+- `/api/analytics/overview`
+
 ## Production Profile (Optional)
 
 Enable optional production-oriented stack components:
@@ -215,8 +248,15 @@ This profile enables:
 - `minio` (object storage for artifact expansion)
 - `rabbitmq` (alternate queue backend option)
 - dedicated queue workers: `worker_logs`, `worker_network`, `worker_memory`, `worker_rules`
+- `opensearch` + `opensearch_dashboards`
 
 `postgres` runs in the default compose stack.
+
+Enable ClickHouse analytics profile:
+
+```bash
+docker compose --profile dfir-analytics up -d --build
+```
 
 ## SQLite to PostgreSQL Cutover
 
@@ -231,6 +271,13 @@ python scripts/migrate_sqlite_to_postgres.py \
 ```
 
 The migration script truncates destination tables, copies rows, and realigns PostgreSQL ID sequences to prevent duplicate primary-key inserts.
+
+Alembic upgrade/drift check:
+
+```bash
+alembic upgrade head
+python scripts/check_migration_drift.py
+```
 
 ## Job Pipeline (Event-Driven)
 
@@ -283,6 +330,13 @@ python scripts/rule_qa.py --json
 Expectations file:
 - `qa_datasets/regression_expectations.json`
 
+## Queue-Depth Worker Autoscaling (KEDA)
+
+Kubernetes manifests for separated queue workers and autoscaling:
+
+- `deploy/k8s/workers-keda.yaml`
+- `deploy/k8s/README.md`
+
 ## Project Structure
 
 ```text
@@ -300,8 +354,19 @@ Forensis/
 │   │   ├── entity_profile.py
 │   │   ├── correlation_engine.py
 │   │   └── detection_pipeline.py
+│   ├── services/
+│   │   ├── event_search_service.py
+│   │   ├── analytics_service.py
+│   │   ├── job_service.py
+│   │   └── rule_service.py
 │   └── integrations/
 │       └── elk_loki.py
+├── migrations/
+│   └── versions/
+├── deploy/
+│   ├── clickhouse/
+│   └── k8s/
+├── .github/workflows/ci.yml
 ├── templates/
 ├── static/
 ├── sigma_rules/
@@ -309,10 +374,14 @@ Forensis/
 ├── threat_intel/
 ├── config/
 ├── qa_datasets/
-├── scripts/rule_qa.py
+├── scripts/
+│   ├── check_migration_drift.py
+│   ├── migrate_sqlite_to_postgres.py
+│   └── rule_qa.py
 ├── instance/
 ├── uploads/
 ├── Dockerfile
+├── alembic.ini
 ├── docker-compose.yml
 └── requirements.txt
 ```
