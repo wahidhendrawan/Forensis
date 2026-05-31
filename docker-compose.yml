@@ -2,10 +2,13 @@ services:
   redis:
     image: redis:alpine
     container_name: forensis_redis
+    environment:
+      - TZ=Asia/Jakarta
 
   forensis:
     build: .
     container_name: forensis
+    command: gunicorn -w 2 -k gthread --threads 4 -b 0.0.0.0:5000 --timeout 180 app:app
     ports:
       - "5000:5000"
     env_file:
@@ -13,8 +16,13 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FORENSIS_BOOTSTRAP_DB=1
+      - TZ=Asia/Jakarta
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     volumes:
       - .:/app
       - ./uploads:/app/uploads
@@ -23,15 +31,155 @@ services:
   celery_worker:
     build: .
     container_name: forensis_worker
-    command: celery -A app.celery worker --loglevel=info
+    command: celery -A app.celery worker --loglevel=info -Q logs,network,memory,rules,celery --prefetch-multiplier=1 -O fair
     env_file:
       - .env
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FORENSIS_BOOTSTRAP_DB=0
+      - TZ=Asia/Jakarta
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     volumes:
       - .:/app
       - ./uploads:/app/uploads
       - ./instance:/app/instance
+
+  worker_logs:
+    build: .
+    container_name: forensis_worker_logs
+    profiles: ["dfir-prod"]
+    command: celery -A app.celery worker --loglevel=info -Q logs --concurrency=4 --prefetch-multiplier=1 -O fair
+    env_file:
+      - .env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FORENSIS_BOOTSTRAP_DB=0
+      - TZ=Asia/Jakarta
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - ./uploads:/app/uploads
+      - ./instance:/app/instance
+
+  worker_network:
+    build: .
+    container_name: forensis_worker_network
+    profiles: ["dfir-prod"]
+    command: celery -A app.celery worker --loglevel=info -Q network --concurrency=2 --prefetch-multiplier=1 -O fair
+    env_file:
+      - .env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FORENSIS_BOOTSTRAP_DB=0
+      - TZ=Asia/Jakarta
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - ./uploads:/app/uploads
+      - ./instance:/app/instance
+
+  worker_memory:
+    build: .
+    container_name: forensis_worker_memory
+    profiles: ["dfir-prod"]
+    command: celery -A app.celery worker --loglevel=info -Q memory --concurrency=2 --prefetch-multiplier=1 -O fair
+    env_file:
+      - .env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FORENSIS_BOOTSTRAP_DB=0
+      - TZ=Asia/Jakarta
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - ./uploads:/app/uploads
+      - ./instance:/app/instance
+
+  worker_rules:
+    build: .
+    container_name: forensis_worker_rules
+    profiles: ["dfir-prod"]
+    command: celery -A app.celery worker --loglevel=info -Q rules --concurrency=2 --prefetch-multiplier=1 -O fair
+    env_file:
+      - .env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FORENSIS_BOOTSTRAP_DB=0
+      - TZ=Asia/Jakarta
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - ./uploads:/app/uploads
+      - ./instance:/app/instance
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: forensis_postgres
+    environment:
+      - POSTGRES_DB=${FORENSIS_POSTGRES_DB:-forensis}
+      - POSTGRES_USER=${FORENSIS_POSTGRES_USER:-forensis}
+      - POSTGRES_PASSWORD=${FORENSIS_POSTGRES_PASSWORD:-forensis_change_me}
+      - TZ=Asia/Jakarta
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${FORENSIS_POSTGRES_USER:-forensis} -d ${FORENSIS_POSTGRES_DB:-forensis}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:latest
+    container_name: forensis_minio
+    profiles: ["dfir-prod"]
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${FORENSIS_MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${FORENSIS_MINIO_ROOT_PASSWORD:-minio_change_me_please}
+      - TZ=Asia/Jakarta
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: forensis_rabbitmq
+    profiles: ["dfir-prod"]
+    environment:
+      - TZ=Asia/Jakarta
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+volumes:
+  pgdata:
+  minio_data:

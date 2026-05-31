@@ -66,10 +66,13 @@ PLAYBOOKS = {
                 {"focus": "ioc_validation", "commands": [{"cmd": "zeek-cut id.resp_h < conn.log | sort -u > dst_ips.txt", "desc": "Build destination IOC candidate list for TI matching."}, {"cmd": "cat dst_ips.txt | xargs -I{} sh -c 'echo {}'", "desc": "Prepare outbound destination list for enrichment pipeline."}]},
             ],
         },
-        "intrusion_detection": {
+        "network.analysis.deep_inspection": {
             "tool": "tshark/zeek/suricata",
             "steps": [
-                {"focus": "compatibility_profile", "commands": [{"cmd": "tshark -r capture.pcap -q -z conv,ip", "desc": "Legacy profile retained for backward compatibility."}]}
+                {"focus": "signature_validation", "commands": [{"cmd": "suricata -r capture.pcap -S custom.rules -l ./suricata_out", "desc": "Run IDS signature replay for known malicious traffic patterns."}, {"cmd": "jq '.alert.signature,.src_ip,.dest_ip' suricata_out/eve.json 2>/dev/null | paste - - - | head -50", "desc": "Quick triage of top IDS alerts by source and destination."}]},
+                {"focus": "http_and_tls_artifacts", "commands": [{"cmd": "zeek -r capture.pcap protocols/http protocols/ssl", "desc": "Extract HTTP and TLS metadata for suspicious host/domain pivoting."}, {"cmd": "tshark -r capture.pcap -Y \"http.request || tls.handshake\" -T fields -e frame.time -e ip.src -e ip.dst -e http.host -e tls.handshake.extensions_server_name", "desc": "Build timeline of cleartext hostnames and SNI indicators."}]},
+                {"focus": "lateral_and_discovery", "commands": [{"cmd": "tshark -r capture.pcap -Y \"smb || dcerpc || kerberos\" -T fields -e frame.time -e ip.src -e ip.dst -e tcp.dstport", "desc": "Detect east-west authentication and remote service activity."}, {"cmd": "tshark -r capture.pcap -Y \"icmp || arp\" -T fields -e frame.time -e eth.src -e eth.dst", "desc": "Review discovery traffic bursts linked to reconnaissance."}]},
+                {"focus": "compatibility_profile", "commands": [{"cmd": "tshark -r capture.pcap -q -z conv,ip", "desc": "Quick conversation overview for compatibility and fast baseline checks."}]}
             ],
         },
     },
@@ -101,6 +104,9 @@ PLAYBOOKS = {
         },
     },
 }
+
+# Backward compatibility for legacy profile name used in previous releases.
+PLAYBOOKS["network"]["intrusion_detection"] = PLAYBOOKS["network"]["network.analysis.deep_inspection"]
 
 SUSPICIOUS_PATTERNS = [
     {"label": "mimikatz", "category": "credential_access", "severity": "critical", "regex": re.compile(r"mimikatz|sekurlsa::|lsadump::", re.I)},

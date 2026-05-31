@@ -3,79 +3,67 @@
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
-        <h2 class="fw-bold"><i class="fas fa-toolbox text-primary me-2"></i>Forensics Helper</h2>
-        <p class="text-muted">Plan generator and operational cheatsheets for incident response.</p>
+        <h2 class="fw-bold"><i class="fas fa-toolbox text-primary me-2"></i>Helper</h2>
+        <p class="text-muted">Plan generator and operational command cheatsheets for DFIR workflow.</p>
     </div>
 </div>
 
-<ul class="nav nav-pills mb-4" id="helperTabs" role="tablist">
-    <li class="nav-item">
-        <button class="nav-link {% if active_tab == 'generate' %}active{% endif %}" id="gen-tab" data-bs-toggle="pill" data-bs-target="#generate" type="button">Plan Generator</button>
-    </li>
-    <li class="nav-item">
-        <button class="nav-link {% if active_tab == 'cheatsheets' %}active{% endif %}" id="cheatsheet-tab" data-bs-toggle="pill" data-bs-target="#cheatsheets" type="button">Cheatsheets</button>
-    </li>
-</ul>
-
-<div class="tab-content">
-    <div class="tab-pane fade {% if active_tab == 'generate' %}show active{% endif %}" id="generate">
-        <div class="card shadow-sm">
-            <div class="card-body p-4">
-                <form method="post">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="mode" value="playbook">
-                    <div class="row g-3">
-                        <div class="col-md-4">
-                            <label class="form-label fw-bold">Investigation Category</label>
-                            <select name="category" class="form-select" id="categorySelect">
-                                <option value="memory">Memory Analysis</option>
-                                <option value="network">Network Analysis</option>
-                                <option value="logs">Logs Analysis</option>
-                            </select>
-                        </div>
-                        <div class="col-md-5">
-                            <label class="form-label fw-bold">Analysis Profile</label>
-                            <select name="profile" class="form-select" id="profileSelect"></select>
-                        </div>
-                        <div class="col-md-3 d-flex align-items-end">
-                            <button type="submit" class="btn btn-primary w-100">Generate Plan</button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <div class="tab-pane fade {% if active_tab == 'cheatsheets' %}show active{% endif %}" id="cheatsheets">
-        <div class="row row-cols-1 row-cols-md-2 g-4">
-            {% for category, commands in helper_sheets.items() %}
-            <div class="col">
-                <div class="card h-100 shadow-sm border-0 bg-dark bg-opacity-50">
-                    <div class="card-header border-0 bg-transparent pt-4 px-4">
-                        <h5 class="fw-bold text-info"><i class="fas fa-terminal me-2"></i>{{ category }}</h5>
-                    </div>
-                    <div class="card-body px-4 pb-4">
-                        <div class="list-group list-group-flush bg-transparent">
-                            {% for item in commands %}
-                            <div class="list-group-item bg-transparent border-0 px-0 mb-3">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="small fw-bold text-light opacity-75">{{ item.desc }}</span>
-                                    <button class="btn btn-sm btn-link text-info p-0 copy-btn" data-clipboard="{{ item.cmd }}" title="Copy to clipboard">
-                                        <i class="fas fa-copy"></i>
-                                    </button>
-                                </div>
-                                <code class="d-block w-100 p-3 rounded bg-black text-success border border-secondary border-opacity-25" style="font-size: 0.85rem;">
-                                    {{ item.cmd }}
-                                </code>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
+<div class="card shadow-sm mb-4">
+    <div class="card-body p-4">
+        <h5 class="fw-bold mb-3">Plan Generator</h5>
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="mode" value="playbook">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Investigation Category</label>
+                    <select name="category" class="form-select" id="categorySelect">
+                        <option value="memory">Memory Analysis</option>
+                        <option value="network">Network Analysis</option>
+                        <option value="logs">Logs Analysis</option>
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label fw-bold">Analysis Profile</label>
+                    <select name="profile" class="form-select" id="profileSelect"></select>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">Generate Plan</button>
                 </div>
             </div>
-            {% endfor %}
+        </form>
+    </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="fw-bold mb-0">Command Cheatsheets</h5>
+    <span class="small text-muted">Each command includes short operational context.</span>
+</div>
+<div class="row row-cols-1 row-cols-md-2 g-4 mb-4">
+    {% for category, commands in helper_sheets.items() %}
+    <div class="col">
+        <div class="card h-100 shadow-sm border-0 bg-dark bg-opacity-50">
+            <div class="card-header border-0 bg-transparent pt-4 px-4">
+                <h5 class="fw-bold text-info"><i class="fas fa-terminal me-2"></i>{{ category }}</h5>
+            </div>
+            <div class="card-body px-4 pb-4">
+                <div class="list-group list-group-flush bg-transparent">
+                    {% for item in commands %}
+                    <div class="list-group-item bg-transparent border-0 px-0 mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="small fw-bold text-light opacity-75">{{ item.desc }}</span>
+                            <button class="btn btn-sm btn-link text-info p-0 copy-btn" data-clipboard="{{ item.cmd }}" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                        <code class="d-block w-100 p-3 rounded bg-black text-success border border-secondary border-opacity-25" style="font-size: 0.85rem;">{{ item.cmd }}</code>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
         </div>
     </div>
+    {% endfor %}
 </div>
 
 {% if playbook %}
@@ -94,7 +82,7 @@
                 <div class="card-body">
                     <h6 class="text-uppercase text-muted small fw-bold mb-3">{{ step.focus }}</h6>
                     {% for command in step.commands %}
-                    <div class="mb-2">
+                    <div class="mb-3">
                         <code class="d-block p-2 bg-black text-info small">{{ command.cmd }}</code>
                         <div class="small text-muted mt-1">{{ command.desc }}</div>
                     </div>
@@ -118,7 +106,7 @@
         "network": [
             {val: "network.analysis.baseline", label: "Network Baseline Analysis"},
             {val: "network.c2_hunting", label: "C2 Hunting"},
-            {val: "intrusion_detection", label: "Legacy Network Analysis"}
+            {val: "network.analysis.deep_inspection", label: "Network Analysis Deep Inspection"}
         ],
         "logs": [
             {val: "web_attack", label: "Web Attack Analysis"},

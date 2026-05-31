@@ -16,3 +16,5 @@ python-magic>=0.4.27
 celery>=5.4.0
 redis>=5.0.4
 yara-python>=4.5.1
+psycopg[binary]>=3.2.9
+gunicorn>=22.0.0

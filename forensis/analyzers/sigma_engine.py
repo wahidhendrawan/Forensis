@@ -472,9 +472,22 @@ class SigmaEngine:
                 continue
         return imported
 
-    def correlate_events(self, events: List[Dict]):
+    def correlate_events(self, events: List[Dict], max_events: int = None, max_matches: int = None):
+        if not isinstance(events, list) or not self.rules:
+            return []
+        event_limit = None
+        if isinstance(max_events, int) and max_events > 0:
+            event_limit = max_events
+        match_limit = None
+        if isinstance(max_matches, int) and max_matches > 0:
+            match_limit = max_matches
+
         matches = []
         for idx, evt in enumerate(events):
+            if event_limit is not None and idx >= event_limit:
+                break
+            if not isinstance(evt, dict):
+                continue
             for rule in self.rules:
                 try:
                     if rule.match_event(evt):
@@ -488,6 +501,8 @@ class SigmaEngine:
                                 "event": evt,
                             }
                         )
+                        if match_limit is not None and len(matches) >= match_limit:
+                            return matches
                 except Exception:
                     continue
         return matches

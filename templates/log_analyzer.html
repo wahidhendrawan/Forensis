@@ -154,7 +154,12 @@
     </div>
 </div>
 
-{% if sigma_matches %}
+{% if results.sigma_status == 'queued' %}
+<div class="alert alert-info mb-4">
+    <i class="fas fa-spinner fa-spin me-2"></i>
+    Sigma correlation is running in the background. Refresh in a few moments for final rule matches.
+</div>
+{% elif sigma_matches %}
 <div class="card border-danger mb-4">
     <div class="card-header bg-danger text-white">Sigma Rule Matches</div>
     <div class="card-body p-0">
@@ -172,6 +177,8 @@
         </ul>
     </div>
 </div>
+{% else %}
+<div class="alert alert-secondary mb-4">No Sigma rule matches for this dataset.</div>
 {% endif %}
 
 {% if results.anomalies %}

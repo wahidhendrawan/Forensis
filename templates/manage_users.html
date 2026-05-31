@@ -61,6 +61,71 @@
 
 {% if is_admin %}
 <div class="row g-4 mb-4">
+    <div class="col-md-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-dark text-white py-3">
+                <h5 class="mb-0 fw-bold"><i class="fas fa-globe me-2"></i>Threat Intel Integration (OTX)</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-8">
+                        <div class="small text-muted mb-1">Current Status</div>
+                        {% if otx_enabled %}
+                        <div class="fw-bold text-success mb-2"><i class="fas fa-check-circle me-1"></i>Enabled</div>
+                        <div class="small text-muted">
+                            Active key: <code>{{ otx_key_masked }}</code>
+                            {% if otx_env_override %}
+                            <span class="badge bg-warning text-dark ms-2">Environment Override</span>
+                            {% endif %}
+                        </div>
+                        {% if otx_stored_key_masked %}
+                        <div class="small text-muted">Stored dashboard key: <code>{{ otx_stored_key_masked }}</code></div>
+                        {% endif %}
+                        {% else %}
+                        <div class="fw-bold text-warning mb-2"><i class="fas fa-exclamation-triangle me-1"></i>Disabled</div>
+                        <div class="small text-muted">No active OTX API key configured.</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-4 text-md-end">
+                        <form method="POST" action="{{ url_for('update_otx_integration') }}" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="action" value="clear">
+                            <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Clear OTX API key from dashboard settings?')">
+                                <i class="fas fa-trash-alt me-1"></i> Clear Stored Key
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                <hr>
+                <form method="POST" action="{{ url_for('update_otx_integration') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="action" value="save">
+                    <label class="form-label small fw-bold">Set / Rotate OTX API Key</label>
+                    <div class="input-group">
+                        <input
+                            type="password"
+                            name="otx_api_key"
+                            class="form-control"
+                            placeholder="Enter new OTX API key"
+                            autocomplete="new-password"
+                            minlength="16"
+                            maxlength="256"
+                            required
+                        >
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i> Save Key
+                        </button>
+                    </div>
+                    <div class="form-text">
+                        Key is stored masked in dashboard. Threat Intel engine will use it for public IP enrichment to OTX.
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
     <div class="col-md-5">
         <div class="card shadow-sm border-0">
             <div class="card-header bg-primary text-white py-3">

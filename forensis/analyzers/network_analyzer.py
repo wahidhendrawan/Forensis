@@ -1,7 +1,9 @@
 from collections import defaultdict, Counter
+import os
 import socket
 import ipaddress
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 
 def _try_import_dpkt():
@@ -15,6 +17,26 @@ def _try_import_dpkt():
 KNOWN_C2_PORTS = {4444, 4445, 1337, 6667, 31337, 9001, 50050}
 RISKY_ADMIN_PORTS = {22, 23, 135, 139, 445, 3389, 5985, 5986}
 SEVERITY_WEIGHT = {"critical": 5, "high": 3, "medium": 2, "low": 1}
+
+
+def _env_int(name: str, default: int, min_value: int):
+    raw = (os.getenv(name, "") or "").strip()
+    try:
+        value = int(raw) if raw else int(default)
+    except (TypeError, ValueError):
+        value = int(default)
+    return max(min_value, value)
+
+
+PCAP_MAX_PACKETS = _env_int("FORENSIS_PCAP_MAX_PACKETS", 350000, 50000)
+PCAP_MAX_TRACKED_FLOWS = _env_int("FORENSIS_PCAP_MAX_TRACKED_FLOWS", 250000, 10000)
+
+DISPLAY_TZ_NAME = (os.getenv("FORENSIS_DISPLAY_TZ", "Asia/Jakarta") or "Asia/Jakarta").strip()
+try:
+    DISPLAY_TZ = ZoneInfo(DISPLAY_TZ_NAME)
+except Exception:
+    DISPLAY_TZ = timezone.utc
+    DISPLAY_TZ_NAME = "UTC"
 
 
 def _inet_to_str(inet):
@@ -66,7 +88,7 @@ def _calc_threat_score(severity_counts: Counter):
 
 def _format_ts(ts):
     try:
-        return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc).astimezone(DISPLAY_TZ).isoformat()
     except Exception:
         return ""
 
@@ -87,6 +109,8 @@ def analyze_pcap(path: str):
     anomaly_seen = set()
     severity_counts = Counter()
     total_packets = 0
+    packets_truncated = False
+    dropped_new_flows = 0
     scan_tracker = defaultdict(lambda: {"dst_ports": set(), "dst_hosts": set(), "syn_packets": 0})
 
     try:
@@ -106,6 +130,9 @@ def analyze_pcap(path: str):
                     }
 
             for ts, buf in reader:
+                if total_packets >= PCAP_MAX_PACKETS:
+                    packets_truncated = True
+                    break
                 total_packets += 1
                 try:
                     eth = dpkt.ethernet.Ethernet(buf)
@@ -142,6 +169,9 @@ def analyze_pcap(path: str):
                     key = (src, dst, sport, dport, proto)
                     flow = flows.get(key)
                     if not flow:
+                        if len(flows) >= PCAP_MAX_TRACKED_FLOWS:
+                            dropped_new_flows += 1
+                            continue
                         flow = {
                             "src": src,
                             "dst": dst,
@@ -318,6 +348,11 @@ def analyze_pcap(path: str):
         "threat_score": _calc_threat_score(severity_counts),
         "first_seen": _format_ts(min((f["first_ts"] for f in flows.values()), default=0)) if flows else "",
         "last_seen": _format_ts(max((f["last_ts"] for f in flows.values()), default=0)) if flows else "",
+        "pcap_max_packets": PCAP_MAX_PACKETS,
+        "packets_truncated": packets_truncated,
+        "max_tracked_flows": PCAP_MAX_TRACKED_FLOWS,
+        "dropped_new_flows": dropped_new_flows,
+        "display_tz": DISPLAY_TZ_NAME,
     }
 
     return {
