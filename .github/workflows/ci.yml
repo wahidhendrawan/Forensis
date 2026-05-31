@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      FORENSIS_DB_URI: sqlite:///instance/ci_migration_check.db
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Syntax check
+        run: |
+          python -m py_compile app.py
+          python -m py_compile forensis/models.py
+          python -m py_compile forensis/analyzers/log_analyzer.py
+          python -m py_compile forensis/analyzers/network_analyzer.py
+          python -m py_compile forensis/analyzers/playbook_engine.py
+          python -m py_compile forensis/analyzers/sigma_engine.py
+          python -m py_compile forensis/analyzers/threat_intel.py
+          python -m py_compile forensis/services/job_service.py
+          python -m py_compile forensis/services/rule_service.py
+          python -m py_compile scripts/migrate_sqlite_to_postgres.py
+          python -m py_compile scripts/check_migration_drift.py
+
+      - name: Alembic migration drift check
+        run: |
+          python scripts/check_migration_drift.py
+
+      - name: Rule QA regression
+        run: |
+          python scripts/rule_qa.py --json

@@ -180,6 +180,49 @@ services:
       - "5672:5672"
       - "15672:15672"
 
+  opensearch:
+    image: opensearchproject/opensearch:2.15.0
+    container_name: forensis_opensearch
+    profiles: ["dfir-prod"]
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - TZ=Asia/Jakarta
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+
+  opensearch_dashboards:
+    image: opensearchproject/opensearch-dashboards:2.15.0
+    container_name: forensis_opensearch_dashboards
+    profiles: ["dfir-prod"]
+    environment:
+      - OPENSEARCH_HOSTS=["http://opensearch:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+      - TZ=Asia/Jakarta
+    depends_on:
+      - opensearch
+    ports:
+      - "5601:5601"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: forensis_clickhouse
+    profiles: ["dfir-analytics"]
+    environment:
+      - TZ=Asia/Jakarta
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./deploy/clickhouse/init:/docker-entrypoint-initdb.d:ro
+
 volumes:
   pgdata:
   minio_data:
+  opensearch_data:
+  clickhouse_data:

@@ -1,0 +1,220 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: forensis
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: forensis-worker-config
+  namespace: forensis
+data:
+  FORENSIS_DB_URI: "postgresql+psycopg://forensis:forensis_change_me@forensis-postgres.forensis.svc.cluster.local:5432/forensis"
+  CELERY_BROKER_URL: "redis://forensis-redis-master.forensis.svc.cluster.local:6379/0"
+  CELERY_RESULT_BACKEND: "redis://forensis-redis-master.forensis.svc.cluster.local:6379/0"
+  FORENSIS_BOOTSTRAP_DB: "0"
+  FORENSIS_DISPLAY_TZ: "Asia/Jakarta"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forensis-worker-logs
+  namespace: forensis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forensis-worker-logs
+  template:
+    metadata:
+      labels:
+        app: forensis-worker-logs
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/wahidhendrawan/forensis:latest
+          imagePullPolicy: IfNotPresent
+          command: ["celery"]
+          args: ["-A", "app.celery", "worker", "--loglevel=info", "-Q", "logs", "--prefetch-multiplier=1", "-O", "fair"]
+          envFrom:
+            - configMapRef:
+                name: forensis-worker-config
+          resources:
+            requests:
+              cpu: "300m"
+              memory: "512Mi"
+            limits:
+              cpu: "1500m"
+              memory: "2Gi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forensis-worker-network
+  namespace: forensis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forensis-worker-network
+  template:
+    metadata:
+      labels:
+        app: forensis-worker-network
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/wahidhendrawan/forensis:latest
+          imagePullPolicy: IfNotPresent
+          command: ["celery"]
+          args: ["-A", "app.celery", "worker", "--loglevel=info", "-Q", "network", "--prefetch-multiplier=1", "-O", "fair"]
+          envFrom:
+            - configMapRef:
+                name: forensis-worker-config
+          resources:
+            requests:
+              cpu: "400m"
+              memory: "768Mi"
+            limits:
+              cpu: "2000m"
+              memory: "3Gi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forensis-worker-memory
+  namespace: forensis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forensis-worker-memory
+  template:
+    metadata:
+      labels:
+        app: forensis-worker-memory
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/wahidhendrawan/forensis:latest
+          imagePullPolicy: IfNotPresent
+          command: ["celery"]
+          args: ["-A", "app.celery", "worker", "--loglevel=info", "-Q", "memory", "--prefetch-multiplier=1", "-O", "fair"]
+          envFrom:
+            - configMapRef:
+                name: forensis-worker-config
+          resources:
+            requests:
+              cpu: "600m"
+              memory: "1Gi"
+            limits:
+              cpu: "2500m"
+              memory: "4Gi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forensis-worker-rules
+  namespace: forensis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forensis-worker-rules
+  template:
+    metadata:
+      labels:
+        app: forensis-worker-rules
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/wahidhendrawan/forensis:latest
+          imagePullPolicy: IfNotPresent
+          command: ["celery"]
+          args: ["-A", "app.celery", "worker", "--loglevel=info", "-Q", "rules", "--prefetch-multiplier=1", "-O", "fair"]
+          envFrom:
+            - configMapRef:
+                name: forensis-worker-config
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: forensis-worker-logs-scale
+  namespace: forensis
+spec:
+  scaleTargetRef:
+    name: forensis-worker-logs
+  pollingInterval: 15
+  cooldownPeriod: 90
+  minReplicaCount: 1
+  maxReplicaCount: 12
+  triggers:
+    - type: redis
+      metadata:
+        address: forensis-redis-master.forensis.svc.cluster.local:6379
+        listName: logs
+        listLength: "25"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: forensis-worker-network-scale
+  namespace: forensis
+spec:
+  scaleTargetRef:
+    name: forensis-worker-network
+  pollingInterval: 15
+  cooldownPeriod: 120
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  triggers:
+    - type: redis
+      metadata:
+        address: forensis-redis-master.forensis.svc.cluster.local:6379
+        listName: network
+        listLength: "10"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: forensis-worker-memory-scale
+  namespace: forensis
+spec:
+  scaleTargetRef:
+    name: forensis-worker-memory
+  pollingInterval: 20
+  cooldownPeriod: 150
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  triggers:
+    - type: redis
+      metadata:
+        address: forensis-redis-master.forensis.svc.cluster.local:6379
+        listName: memory
+        listLength: "8"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: forensis-worker-rules-scale
+  namespace: forensis
+spec:
+  scaleTargetRef:
+    name: forensis-worker-rules
+  pollingInterval: 20
+  cooldownPeriod: 90
+  minReplicaCount: 1
+  maxReplicaCount: 6
+  triggers:
+    - type: redis
+      metadata:
+        address: forensis-redis-master.forensis.svc.cluster.local:6379
+        listName: rules
+        listLength: "20"
