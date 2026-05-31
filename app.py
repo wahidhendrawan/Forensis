@@ -49,6 +49,9 @@ from forensis.models import (
     Case,
     Artifact,
     AnalysisJob,
+    Finding,
+    RuleMatch,
+    TimelineEvent,
 )
 from forensis.analyzers.log_analyzer import analyze_logs
 from forensis.analyzers.network_analyzer import analyze_pcap
@@ -249,6 +252,14 @@ RUNTIME_INDEX_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_timeline_case_ts ON timeline_event (case_id, created_at)",
 ]
 
+ANALYSIS_PURGE_TABLES = (
+    "rule_match",
+    "finding",
+    "timeline_event",
+    "analysis_job",
+    "analysis_history",
+)
+
 
 def _ensure_runtime_indexes():
     for stmt in RUNTIME_INDEX_STATEMENTS:
@@ -261,6 +272,40 @@ def _ensure_runtime_indexes():
         db.session.commit()
     except Exception:
         db.session.rollback()
+
+
+def _purge_analysis_data():
+    bind = db.session.get_bind()
+    dialect = (getattr(bind, "dialect", None).name if bind else "").lower()
+
+    if dialect == "postgresql":
+        table_list = ", ".join(ANALYSIS_PURGE_TABLES)
+        db.session.execute(text(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE"))
+        db.session.commit()
+        return
+
+    RuleMatch.query.delete(synchronize_session=False)
+    Finding.query.delete(synchronize_session=False)
+    TimelineEvent.query.delete(synchronize_session=False)
+    AnalysisJob.query.delete(synchronize_session=False)
+    AnalysisHistory.query.delete(synchronize_session=False)
+    db.session.commit()
+
+
+def _delete_history_dependencies(history_id: int):
+    jobs = AnalysisJob.query.filter_by(history_id=history_id).all()
+    if not jobs:
+        return
+
+    job_ids = [j.id for j in jobs]
+    finding_ids = [row[0] for row in db.session.query(Finding.id).filter(Finding.analysis_job_id.in_(job_ids)).all()]
+
+    RuleMatch.query.filter(RuleMatch.analysis_job_id.in_(job_ids)).delete(synchronize_session=False)
+    if finding_ids:
+        RuleMatch.query.filter(RuleMatch.finding_id.in_(finding_ids)).delete(synchronize_session=False)
+    Finding.query.filter(Finding.analysis_job_id.in_(job_ids)).delete(synchronize_session=False)
+    TimelineEvent.query.filter(TimelineEvent.analysis_job_id.in_(job_ids)).delete(synchronize_session=False)
+    AnalysisJob.query.filter(AnalysisJob.id.in_(job_ids)).delete(synchronize_session=False)
 
 
 def _get_stored_otx_api_key() -> str:
@@ -1716,9 +1761,15 @@ def delete_history(id):
         return redirect(url_for("history"))
     analysis = db.session.get(AnalysisHistory, id)
     if analysis and (current_user.role == "admin" or analysis.user_id == current_user.id):
-        db.session.delete(analysis)
-        db.session.commit()
-        flash("History deleted.", "success")
+        try:
+            _delete_history_dependencies(analysis.id)
+            db.session.delete(analysis)
+            db.session.commit()
+            flash("History deleted.", "success")
+        except Exception:
+            db.session.rollback()
+            app.logger.exception("Failed to delete history id=%s", analysis.id)
+            flash("Failed to delete history. Please check server logs.", "danger")
     elif analysis:
         flash("Permission denied.", "danger")
     return redirect(url_for('history'))
@@ -1729,9 +1780,13 @@ def delete_history(id):
 def reset_data():
     if not _require_csrf():
         return _safe_redirect(request.referrer, "dashboard")
-    AnalysisHistory.query.delete()
-    db.session.commit()
-    flash("History reset.", "success")
+    try:
+        _purge_analysis_data()
+        flash("History reset.", "success")
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Failed to reset analysis data")
+        flash("Failed to reset data. Please check server logs.", "danger")
     return redirect(url_for('dashboard'))
 
 def save_history(type, results, filename=None):
