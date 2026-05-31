@@ -57,6 +57,28 @@ def _copy_table(src_conn, dst_conn, src_table: Table, dst_table: Table, batch_si
     return len(rows)
 
 
+def _repair_postgres_sequences(dst_conn, dst_meta: MetaData):
+    for table_name in TABLE_ORDER:
+        table = dst_meta.tables.get(table_name)
+        if table is None:
+            continue
+        if "id" not in table.columns:
+            continue
+        try:
+            dst_conn.exec_driver_sql(
+                f"""
+                SELECT setval(
+                    pg_get_serial_sequence('"{table_name}"', 'id'),
+                    COALESCE((SELECT MAX(id) FROM "{table_name}"), 0) + 1,
+                    false
+                )
+                """
+            )
+        except Exception:
+            # Skip if table does not use serial sequence for id.
+            continue
+
+
 def main():
     parser = argparse.ArgumentParser(description="Migrate Forensis SQLite data to PostgreSQL")
     parser.add_argument("--sqlite-path", default="instance/forensis.db", help="Path to source SQLite database file")
@@ -88,6 +110,7 @@ def main():
                 )
             row_count = _copy_table(src_conn, dst_conn, src_table, dst_table, max(1, int(args.batch_size)))
             copied[table_name] = row_count
+        _repair_postgres_sequences(dst_conn, dst_meta)
 
     total = sum(copied.values())
     print("Migration completed.")
