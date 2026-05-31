@@ -4,6 +4,7 @@ __pycache__/
 venv/
 env/
 *.log
+!qa_datasets/logs/*.log
 uploads/
 .DS_Store
 sigma_rules/_sigmahq_baseline/
