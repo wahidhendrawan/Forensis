@@ -55,12 +55,24 @@
               {% if results.summary.last_seen %}
               <li>Last seen: <strong>{{ results.summary.last_seen }}</strong></li>
               {% endif %}
+              <li>Timezone: <strong>{{ results.summary.display_tz or display_tz_name }}</strong></li>
             {% endif %}
           </ul>
         </div>
       </div>
     </div>
   </div>
+
+  {% if results.summary.packets_truncated %}
+  <div class="alert alert-warning py-2 small">
+    Packet parsing reached limit <strong>{{ results.summary.pcap_max_packets }}</strong>. Processing was truncated to keep analysis responsive.
+  </div>
+  {% endif %}
+  {% if results.summary.dropped_new_flows %}
+  <div class="alert alert-secondary py-2 small">
+    New flow tracking capped at <strong>{{ results.summary.max_tracked_flows }}</strong>; skipped additional flow keys: <strong>{{ results.summary.dropped_new_flows }}</strong>.
+  </div>
+  {% endif %}
 
   {% if results.summary.severity_counts %}
   <div class="mb-3 d-flex gap-2 flex-wrap">
@@ -134,8 +146,8 @@
             <th>Packets</th>
             <th>Bytes</th>
             <th>Duration (s)</th>
-            <th>First Seen (UTC)</th>
-            <th>Last Seen (UTC)</th>
+            <th>First Seen ({{ results.summary.display_tz or display_tz_name }})</th>
+            <th>Last Seen ({{ results.summary.display_tz or display_tz_name }})</th>
           </tr>
         </thead>
         <tbody class="small">
@@ -188,8 +200,8 @@
           <th style="cursor:pointer" onclick="sortTable(5, true)">Packets <i class="fas fa-sort small text-muted"></i></th>
           <th style="cursor:pointer" onclick="sortTable(6, true)">Bytes <i class="fas fa-sort small text-muted"></i></th>
           <th style="cursor:pointer" onclick="sortTable(7, true)">Duration (s) <i class="fas fa-sort small text-muted"></i></th>
-          <th style="cursor:pointer" onclick="sortTable(8)">First Seen (UTC) <i class="fas fa-sort small text-muted"></i></th>
-          <th style="cursor:pointer" onclick="sortTable(9)">Last Seen (UTC) <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(8)">First Seen ({{ results.summary.display_tz or display_tz_name }}) <i class="fas fa-sort small text-muted"></i></th>
+          <th style="cursor:pointer" onclick="sortTable(9)">Last Seen ({{ results.summary.display_tz or display_tz_name }}) <i class="fas fa-sort small text-muted"></i></th>
           <th style="cursor:pointer" onclick="sortTable(10, true)">Avg Payload <i class="fas fa-sort small text-muted"></i></th>
         </tr>
       </thead>
@@ -224,7 +236,12 @@
       </h2>
       <div id="collapseNetSigma" class="accordion-collapse collapse">
         <div class="accordion-body">
-          {% if sigma_matches %}
+          {% if results.sigma_status == 'queued' %}
+            <p class="text-info mb-0">
+              <i class="fas fa-spinner fa-spin me-1"></i>
+              Sigma correlation is running in the background. Please refresh shortly.
+            </p>
+          {% elif sigma_matches %}
             <ul class="list-group list-group-flush small">
               {% for m in sigma_matches %}
                 <li class="list-group-item">

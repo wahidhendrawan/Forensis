@@ -6,13 +6,16 @@ import zipfile
 import re
 import base64
 import secrets
+import time
 import pyotp
 import qrcode
 import magic
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
+from zoneinfo import ZoneInfo
 
 from urllib.parse import urlparse, urljoin
+from sqlalchemy import text
 
 from flask import (
     Flask,
@@ -31,7 +34,16 @@ from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 from celery import Celery
 
-from forensis.models import db, User, Group, AnalysisHistory
+from forensis.models import (
+    db,
+    User,
+    Group,
+    AnalysisHistory,
+    SystemSetting,
+    Case,
+    Artifact,
+    AnalysisJob,
+)
 from forensis.analyzers.log_analyzer import analyze_logs
 from forensis.analyzers.network_analyzer import analyze_pcap
 from forensis.analyzers.playbook_engine import get_playbook, analyze_generic_output
@@ -42,6 +54,20 @@ from forensis.analyzers.entity_profile import EntityProfileEngine
 from forensis.analyzers.detection_pipeline import enrich_analysis_results
 from forensis.analyzers.correlation_engine import correlate_recent_analyses
 from forensis.integrations.elk_loki import ship_events
+from forensis.services.rule_service import (
+    resolve_sigma_matches,
+    compact_network_results,
+    extract_result_summary,
+)
+from forensis.services.job_service import (
+    get_or_create_active_case,
+    register_artifact,
+    create_analysis_job,
+    bind_job_task,
+    update_job_status,
+    get_job_by_task_id,
+    persist_dfir_outputs,
+)
 
 load_dotenv()
 
@@ -53,9 +79,22 @@ YARA_RULES_DIR = os.path.join(BASE_DIR, "yara_rules")
 THREAT_INTEL_DIR = os.path.join(BASE_DIR, "threat_intel")
 ENTITY_CONFIG_DIR = os.path.join(BASE_DIR, "config")
 
+
+def _env_int(name: str, default: int, min_value: int = None, max_value: int = None) -> int:
+    raw = os.getenv(name, "").strip()
+    try:
+        value = int(raw) if raw else int(default)
+    except (TypeError, ValueError):
+        value = int(default)
+    if min_value is not None and value < min_value:
+        value = min_value
+    if max_value is not None and value > max_value:
+        value = max_value
+    return value
+
 ALLOWED_LOG_EXT = {"log", "txt", "csv", "json"}
 ALLOWED_PCAP_EXT = {"pcap", "pcapng"}
-ALLOWED_MEMORY_EXT = {"txt", "log", "json", "jsonl", "ndjson", "csv", "tsv", "xml", "yaml", "yml", "zip", "vmem", "mem"}
+ALLOWED_MEMORY_EXT = {"txt", "log", "json", "jsonl", "ndjson", "csv", "tsv", "xml", "yaml", "yml", "zip", "vmem", "mem", "raw", "dmp", "img", "bin"}
 VALID_USER_ROLES = {"admin", "analyst"}
 MEMORY_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024
 MEMORY_FILE_MAX_BYTES = 8 * 1024 * 1024
@@ -64,22 +103,60 @@ MEMORY_IMAGE_MAX_BYTES = 256 * 1024 * 1024
 MEMORY_IMAGE_SCAN_BYTES = 64 * 1024 * 1024
 MEMORY_STRINGS_MIN_LEN = 6
 MEMORY_STRINGS_MAX_LINES = 20000
+PCAP_MAX_UPLOAD_BYTES = _env_int("FORENSIS_PCAP_MAX_UPLOAD_BYTES", 300 * 1024 * 1024, min_value=5 * 1024 * 1024, max_value=2 * 1024 * 1024 * 1024)
+OTX_API_KEY_SETTING = "otx_api_key"
+OTX_API_KEY_MIN_LEN = 16
+OTX_API_KEY_MAX_LEN = 256
+OTX_API_KEY_REGEX = re.compile(r"^[A-Za-z0-9_\-]{16,256}$")
+SIGMA_MAX_EVENTS_DEFAULT = _env_int("FORENSIS_SIGMA_MAX_EVENTS", 900, min_value=100, max_value=5000)
+SIGMA_MAX_MATCHES_DEFAULT = _env_int("FORENSIS_SIGMA_MAX_MATCHES", 1500, min_value=50, max_value=10000)
+SIGMA_MAX_EVENTS_LOGS = _env_int("FORENSIS_SIGMA_MAX_EVENTS_LOGS", 900, min_value=100, max_value=5000)
+SIGMA_MAX_EVENTS_NETWORK = _env_int("FORENSIS_SIGMA_MAX_EVENTS_NETWORK", 250, min_value=50, max_value=2000)
+SIGMA_MAX_EVENTS_MEMORY = _env_int("FORENSIS_SIGMA_MAX_EVENTS_MEMORY", 700, min_value=100, max_value=5000)
+NETWORK_EVENTS_STORE_LIMIT = _env_int("FORENSIS_NETWORK_EVENTS_STORE_LIMIT", 900, min_value=200, max_value=5000)
+NETWORK_ANOMALIES_STORE_LIMIT = _env_int("FORENSIS_NETWORK_ANOMALIES_STORE_LIMIT", 500, min_value=100, max_value=5000)
+ASYNC_SIGMA_POSTPROCESS = os.getenv("FORENSIS_ASYNC_SIGMA_POSTPROCESS", "1").strip().lower() in {"1", "true", "yes", "on"}
+DB_POOL_SIZE = _env_int("FORENSIS_DB_POOL_SIZE", 20, min_value=1, max_value=200)
+DB_POOL_MAX_OVERFLOW = _env_int("FORENSIS_DB_POOL_MAX_OVERFLOW", 40, min_value=0, max_value=400)
+DB_POOL_TIMEOUT = _env_int("FORENSIS_DB_POOL_TIMEOUT", 30, min_value=1, max_value=300)
+DB_POOL_RECYCLE = _env_int("FORENSIS_DB_POOL_RECYCLE", 1800, min_value=60, max_value=86400)
+DISPLAY_TIMEZONE_NAME = os.getenv("FORENSIS_DISPLAY_TZ", "Asia/Jakarta").strip() or "Asia/Jakarta"
+try:
+    DISPLAY_TIMEZONE = ZoneInfo(DISPLAY_TIMEZONE_NAME)
+except Exception:
+    DISPLAY_TIMEZONE_NAME = "UTC"
+    DISPLAY_TIMEZONE = timezone.utc
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FORENSIS_SECRET_KEY", "change-me-in-production")
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('FORENSIS_DB_URI', f'sqlite:///{DB_PATH}')
+db_uri = os.getenv('FORENSIS_DB_URI', f'sqlite:///{DB_PATH}')
+app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+if db_uri.startswith("sqlite"):
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "connect_args": {"check_same_thread": False},
+    }
+else:
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "pool_pre_ping": True,
+        "pool_recycle": DB_POOL_RECYCLE,
+        "pool_size": DB_POOL_SIZE,
+        "max_overflow": DB_POOL_MAX_OVERFLOW,
+        "pool_timeout": DB_POOL_TIMEOUT,
+        "pool_use_lifo": True,
+    }
 app.config['CELERY_BROKER_URL'] = os.getenv('CELERY_BROKER_URL', 'redis://redis:6379/0')
 app.config['CELERY_RESULT_BACKEND'] = os.getenv('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
 
 def make_celery(app):
-    celery = Celery(
-        app.import_name,
-        backend=app.config['CELERY_RESULT_BACKEND'],
-        broker=app.config['CELERY_BROKER_URL']
+    celery = Celery(app.import_name)
+    celery.conf.update(
+        broker_url=app.config['CELERY_BROKER_URL'],
+        result_backend=app.config['CELERY_RESULT_BACKEND'],
+        timezone=DISPLAY_TIMEZONE_NAME,
+        enable_utc=False,
     )
-    celery.conf.update(app.config)
     class ContextTask(celery.Task):
         def __call__(self, *args, **kwargs):
             with app.app_context():
@@ -89,11 +166,32 @@ def make_celery(app):
 
 celery = make_celery(app)
 
+
+def _as_display_time(value):
+    if not isinstance(value, datetime):
+        return value
+    dt = value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(DISPLAY_TIMEZONE)
+
+
+def format_local_datetime(value, pattern: str = "%Y-%m-%d %H:%M:%S"):
+    if not isinstance(value, datetime):
+        return "-"
+    try:
+        dt = _as_display_time(value)
+        return dt.strftime(pattern)
+    except Exception:
+        return value.strftime(pattern)
+
 @app.context_processor
 def inject_now():
     return {
-        "now_year": datetime.utcnow().year,
+        "now_year": datetime.now(DISPLAY_TIMEZONE).year,
         "csrf_token": _get_csrf_token(),
+        "display_tz_name": DISPLAY_TIMEZONE_NAME,
+        "fmt_local_dt": format_local_datetime,
     }
 
 @app.after_request
@@ -114,10 +212,104 @@ LAST_RESULTS = {
     "memory": None,
 }
 
+RUNTIME_INDEX_STATEMENTS = [
+    "CREATE INDEX IF NOT EXISTS ix_analysis_history_type_ts ON analysis_history (type, timestamp)",
+    "CREATE INDEX IF NOT EXISTS ix_analysis_history_user_ts ON analysis_history (user_id, timestamp)",
+    "CREATE INDEX IF NOT EXISTS ix_analysis_job_state_updated ON analysis_job (state, updated_at)",
+    "CREATE INDEX IF NOT EXISTS ix_analysis_job_case_state ON analysis_job (case_id, state)",
+    "CREATE INDEX IF NOT EXISTS ix_artifact_case_created ON artifact (case_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_finding_case_severity_created ON finding (case_id, severity, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_rule_match_case_engine_created ON rule_match (case_id, rule_engine, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_timeline_case_ts ON timeline_event (case_id, created_at)",
+]
+
+
+def _ensure_runtime_indexes():
+    for stmt in RUNTIME_INDEX_STATEMENTS:
+        try:
+            db.session.execute(text(stmt))
+        except Exception:
+            db.session.rollback()
+            continue
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def _get_stored_otx_api_key() -> str:
+    try:
+        row = SystemSetting.query.filter_by(key=OTX_API_KEY_SETTING).first()
+    except Exception:
+        return ""
+    if not row or not row.value:
+        return ""
+    return str(row.value).strip()
+
+
+def _get_effective_otx_api_key() -> str:
+    env_key = os.getenv("FORENSIS_OTX_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    return _get_stored_otx_api_key()
+
+
+def _mask_secret(value: str, left: int = 4, right: int = 4) -> str:
+    if not value:
+        return ""
+    text = str(value)
+    if len(text) <= (left + right):
+        return "*" * len(text)
+    middle = "*" * max(4, len(text) - (left + right))
+    return f"{text[:left]}{middle}{text[-right:]}"
+
+
+def _set_system_setting(key: str, value: str):
+    row = SystemSetting.query.filter_by(key=key).first()
+    if row is None:
+        row = SystemSetting(key=key, value=value)
+        db.session.add(row)
+    else:
+        row.value = value
+    db.session.commit()
+
+
+def _delete_system_setting(key: str):
+    row = SystemSetting.query.filter_by(key=key).first()
+    if row:
+        db.session.delete(row)
+        db.session.commit()
+
 sigma_engine = SigmaEngine(os.path.join(BASE_DIR, "sigma_rules"))
 yara_engine = YaraEngine(YARA_RULES_DIR)
 entity_profile_engine = EntityProfileEngine(ENTITY_CONFIG_DIR)
-threat_intel_engine = ThreatIntelEngine(THREAT_INTEL_DIR, allowlist_engine=entity_profile_engine)
+threat_intel_engine = ThreatIntelEngine(
+    THREAT_INTEL_DIR,
+    allowlist_engine=entity_profile_engine,
+    otx_api_key_getter=_get_effective_otx_api_key,
+)
+
+
+def _resolve_sigma(results: dict, analysis_type: str, force_recompute: bool = False):
+    return resolve_sigma_matches(
+        results,
+        analysis_type,
+        sigma_engine,
+        default_max_events=SIGMA_MAX_EVENTS_DEFAULT,
+        max_matches=SIGMA_MAX_MATCHES_DEFAULT,
+        max_events_logs=SIGMA_MAX_EVENTS_LOGS,
+        max_events_network=SIGMA_MAX_EVENTS_NETWORK,
+        max_events_memory=SIGMA_MAX_EVENTS_MEMORY,
+        force_recompute=force_recompute,
+    )
+
+
+def _compact_network(results: dict):
+    return compact_network_results(
+        results,
+        events_limit=NETWORK_EVENTS_STORE_LIMIT,
+        anomalies_limit=NETWORK_ANOMALIES_STORE_LIMIT,
+    )
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -160,13 +352,19 @@ def _safe_unlink(path: str):
     except OSError:
         pass
 
+
 def is_safe_content(path: str, category: str) -> bool:
     try:
         mime = magic.from_file(path, mime=True)
         if category == "log":
             return mime.startswith("text/") or mime in {"application/json", "application/csv", "text/csv"}
         elif category == "pcap":
-            return mime in {"application/vnd.tcpdump.pcap", "application/x-pcapng", "application/octet-stream"}
+            return mime in {
+                "application/vnd.tcpdump.pcap",
+                "application/x-pcapng",
+                "application/x-pcap",
+                "application/octet-stream",
+            }
         elif category == "memory_output":
             allowed = {
                 "application/json",
@@ -193,21 +391,29 @@ def _helper_cheatsheets():
             {"cmd": "vol -f MEM.raw windows.malfind", "desc": "Find injected code regions"},
             {"cmd": "vol -f MEM.raw windows.cmdline", "desc": "Review suspicious command lines"},
             {"cmd": "vol -f MEM.raw windows.filescan", "desc": "Enumerate file object artifacts"},
+            {"cmd": "vol -f MEM.raw windows.handles", "desc": "Inspect suspicious process handles (LSASS/token access)"},
+            {"cmd": "vol -f MEM.raw windows.registry.hivelist", "desc": "Locate registry hives for persistence checks"},
         ],
         "Linux Forensics": [
             {"cmd": "last -f /var/log/wtmp", "desc": "Show login history"},
             {"cmd": "find / -mmin -60", "desc": "Find files changed in last 60 mins"},
             {"cmd": "ss -tulpn", "desc": "List listening sockets and owning process"},
+            {"cmd": "journalctl --since \"-2 hours\"", "desc": "Review recent service and auth logs quickly"},
+            {"cmd": "ausearch -m USER_AUTH,USER_LOGIN -ts recent", "desc": "Query audit login events for compromise traces"},
         ],
         "Windows Forensics": [
             {"cmd": "wevtutil qe Security /f:text", "desc": "Query Security Event Logs"},
             {"cmd": "Get-WinEvent -LogName Security -MaxEvents 50", "desc": "Read latest security events"},
             {"cmd": "net sessions", "desc": "List active SMB sessions"},
+            {"cmd": "Get-ScheduledTask | ? {$_.State -eq 'Ready'}", "desc": "Inspect scheduled task persistence surface"},
+            {"cmd": "Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "desc": "Check autorun keys for startup persistence"},
         ],
         "Network Analysis": [
             {"cmd": "tcpdump -nn -c 100", "desc": "Capture first 100 packets"},
             {"cmd": "tshark -z io,phs -r capture.pcap", "desc": "Protocol hierarchy summary"},
             {"cmd": "zeek -r capture.pcap", "desc": "Generate Zeek artifacts for triage"},
+            {"cmd": "tshark -r capture.pcap -Y \"dns\" -T fields -e frame.time -e ip.src -e dns.qry.name", "desc": "Extract DNS timeline for beaconing/DGA clues"},
+            {"cmd": "suricata -r capture.pcap -S custom.rules -l ./suricata_out", "desc": "Replay PCAP against signature rules quickly"},
         ],
     }
 
@@ -253,7 +459,8 @@ def _read_memory_image_strings(path: str) -> str:
 
 def _read_memory_input(path: str, filename: str) -> str:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if ext in {"vmem", "mem"}:
+    memory_image_ext = {"vmem", "mem", "raw", "dmp", "img", "bin"}
+    if ext in memory_image_ext:
         return _read_memory_image_strings(path)
 
     if ext != "zip":
@@ -261,21 +468,21 @@ def _read_memory_input(path: str, filename: str) -> str:
             return f.read()
 
     chunks = []
-    allowed_inner_ext = {"txt", "log", "json", "jsonl", "ndjson", "csv", "tsv", "xml", "yaml", "yml", "vmem", "mem"}
+    allowed_inner_ext = {"txt", "log", "json", "jsonl", "ndjson", "csv", "tsv", "xml", "yaml", "yml", "vmem", "mem", "raw", "dmp", "img", "bin"}
     with zipfile.ZipFile(path, "r") as zf:
         for info in zf.infolist():
             if info.is_dir():
                 continue
             inner_name = info.filename
             inner_ext = inner_name.rsplit(".", 1)[-1].lower() if "." in inner_name else ""
-            max_allowed = MEMORY_IMAGE_MAX_BYTES if inner_ext in {"vmem", "mem"} else MEMORY_FILE_MAX_BYTES
+            max_allowed = MEMORY_IMAGE_MAX_BYTES if inner_ext in memory_image_ext else MEMORY_FILE_MAX_BYTES
             if info.file_size > max_allowed:
                 continue
             if inner_ext not in allowed_inner_ext:
                 continue
             data = zf.read(info)
 
-            if inner_ext in {"vmem", "mem"}:
+            if inner_ext in memory_image_ext:
                 text = "\n".join(_extract_printable_strings(data[:MEMORY_IMAGE_SCAN_BYTES])).strip()
             else:
                 text = data.decode("utf-8", errors="ignore").strip()
@@ -428,7 +635,53 @@ def manage_users():
     is_admin = current_user.role == "admin"
     users = User.query.order_by(User.id.asc()).all() if is_admin else [current_user]
     groups = Group.query.order_by(Group.name.asc()).all() if is_admin else []
-    return render_template("manage_users.html", users=users, groups=groups, is_admin=is_admin)
+    env_otx_key = os.getenv("FORENSIS_OTX_API_KEY", "").strip()
+    stored_otx_key = _get_stored_otx_api_key() if is_admin else ""
+    effective_otx_key = env_otx_key or stored_otx_key
+    return render_template(
+        "manage_users.html",
+        users=users,
+        groups=groups,
+        is_admin=is_admin,
+        otx_enabled=bool(effective_otx_key),
+        otx_key_masked=_mask_secret(effective_otx_key),
+        otx_env_override=bool(env_otx_key),
+        otx_stored_key_masked=_mask_secret(stored_otx_key),
+    )
+
+
+@app.route("/manage_integrations/otx", methods=["POST"])
+@login_required
+@admin_required
+def update_otx_integration():
+    if not _require_csrf():
+        return redirect(url_for("manage_users"))
+
+    action = request.form.get("action", "save").strip().lower()
+    if action == "clear":
+        _delete_system_setting(OTX_API_KEY_SETTING)
+        threat_intel_engine.invalidate_cache_prefix("otx:")
+        flash("OTX API key removed from dashboard settings.", "success")
+        return redirect(url_for("manage_users"))
+
+    api_key = request.form.get("otx_api_key", "").strip()
+    if not api_key:
+        flash("OTX API key cannot be empty.", "warning")
+        return redirect(url_for("manage_users"))
+    if len(api_key) < OTX_API_KEY_MIN_LEN or len(api_key) > OTX_API_KEY_MAX_LEN:
+        flash("Invalid OTX API key length.", "danger")
+        return redirect(url_for("manage_users"))
+    if not OTX_API_KEY_REGEX.fullmatch(api_key):
+        flash("OTX API key format is invalid.", "danger")
+        return redirect(url_for("manage_users"))
+
+    _set_system_setting(OTX_API_KEY_SETTING, api_key)
+    threat_intel_engine.invalidate_cache_prefix("otx:")
+    if os.getenv("FORENSIS_OTX_API_KEY", "").strip():
+        flash("OTX API key saved, but currently overridden by FORENSIS_OTX_API_KEY environment variable.", "info")
+    else:
+        flash("OTX API key saved successfully.", "success")
+    return redirect(url_for("manage_users"))
 
 @app.route("/manage_users")
 @login_required
@@ -671,27 +924,86 @@ def sigma_sync():
     return _safe_redirect(request.referrer)
 
 @celery.task(name="app.process_logs_task")
-def process_logs_task(log_text, log_type, filename, user_id):
-    results = analyze_logs(log_text, log_type=log_type)
-    results = enrich_analysis_results(
-        results,
-        "logs",
-        yara_engine=yara_engine,
-        threat_intel_engine=threat_intel_engine,
-        entity_profile_engine=entity_profile_engine,
-        raw_blob=log_text,
-    )
-    events = results.get("events", [])
-    ship_events(events, "logs")
-    history = AnalysisHistory(type="logs", user_id=user_id, results_json=json.dumps(results, default=str), filename=filename)
-    db.session.add(history)
-    db.session.commit()
-    return history.id
+def process_logs_task(log_text, log_type, filename, user_id, job_id=None):
+    started = time.monotonic()
+    if job_id:
+        update_job_status(job_id, state="running", stage="parse", progress=10, mark_started=True)
+    try:
+        results = analyze_logs(log_text, log_type=log_type)
+        if job_id:
+            update_job_status(job_id, state="running", stage="enrich", progress=45)
+        results = enrich_analysis_results(
+            results,
+            "logs",
+            yara_engine=yara_engine,
+            threat_intel_engine=threat_intel_engine,
+            entity_profile_engine=entity_profile_engine,
+            raw_blob=log_text,
+        )
+        events = results.get("events", [])
+        ship_events(events, "logs")
+
+        run_async_sigma = bool(job_id) and ASYNC_SIGMA_POSTPROCESS
+        results["sigma_status"] = "queued" if run_async_sigma else "ready"
+        if run_async_sigma:
+            results["sigma_matches"] = []
+
+        history = AnalysisHistory(type="logs", user_id=user_id, filename=filename)
+        history.set_results(results)
+        db.session.add(history)
+        db.session.commit()
+
+        if run_async_sigma:
+            if job_id:
+                update_job_status(
+                    job_id,
+                    state="partial",
+                    stage="post_rule_match",
+                    progress=90,
+                    history_id=history.id,
+                    summary=extract_result_summary(results),
+                )
+                persist_dfir_outputs(job_id, results, sigma_matches=[])
+                postprocess_sigma_task.apply_async(args=(history.id, "logs", job_id), queue="rules")
+        else:
+            matches = _resolve_sigma(results, "logs")
+            results["sigma_status"] = "ready"
+            history.set_results(results)
+            db.session.commit()
+            if job_id:
+                update_job_status(
+                    job_id,
+                    state="succeeded",
+                    stage="complete",
+                    progress=100,
+                    history_id=history.id,
+                    summary=extract_result_summary(results),
+                    mark_finished=True,
+                )
+                persist_dfir_outputs(job_id, results, sigma_matches=matches)
+
+        app.logger.info(
+            "process_logs_task completed in %.3fs (events=%d anomalies=%d sigma_status=%s)",
+            time.monotonic() - started,
+            len(events),
+            len(results.get("anomalies") or []),
+            results.get("sigma_status", "ready"),
+        )
+        return history.id
+    except Exception as exc:
+        if job_id:
+            update_job_status(job_id, state="failed", stage="failed", progress=100, error_message=str(exc), mark_finished=True)
+        raise
 
 @celery.task(name="app.process_network_task")
-def process_network_task(path, filename, user_id):
+def process_network_task(path, filename, user_id, job_id=None):
+    started = time.monotonic()
+    if job_id:
+        update_job_status(job_id, state="running", stage="parse", progress=10, mark_started=True)
     try:
         results = analyze_pcap(path)
+        if job_id:
+            update_job_status(job_id, state="running", stage="enrich", progress=45)
         results = enrich_analysis_results(
             results,
             "network",
@@ -699,20 +1011,74 @@ def process_network_task(path, filename, user_id):
             threat_intel_engine=threat_intel_engine,
             entity_profile_engine=entity_profile_engine,
         )
+        results = _compact_network(results)
         events = results.get("events", [])
         ship_events(events, "network")
-        history = AnalysisHistory(type="network", user_id=user_id, results_json=json.dumps(results, default=str), filename=filename)
+        run_async_sigma = bool(job_id) and ASYNC_SIGMA_POSTPROCESS
+        results["sigma_status"] = "queued" if run_async_sigma else "ready"
+        if run_async_sigma:
+            results["sigma_matches"] = []
+
+        history = AnalysisHistory(type="network", user_id=user_id, filename=filename)
+        history.set_results(results)
         db.session.add(history)
         db.session.commit()
+
+        if run_async_sigma:
+            if job_id:
+                update_job_status(
+                    job_id,
+                    state="partial",
+                    stage="post_rule_match",
+                    progress=90,
+                    history_id=history.id,
+                    summary=extract_result_summary(results),
+                )
+                persist_dfir_outputs(job_id, results, sigma_matches=[])
+                postprocess_sigma_task.apply_async(args=(history.id, "network", job_id), queue="rules")
+        else:
+            matches = _resolve_sigma(results, "network")
+            results["sigma_status"] = "ready"
+            history.set_results(results)
+            db.session.commit()
+            if job_id:
+                update_job_status(
+                    job_id,
+                    state="succeeded",
+                    stage="complete",
+                    progress=100,
+                    history_id=history.id,
+                    summary=extract_result_summary(results),
+                    mark_finished=True,
+                )
+                persist_dfir_outputs(job_id, results, sigma_matches=matches)
+
+        app.logger.info(
+            "process_network_task completed in %.3fs (events_stored=%d events_total=%d anomalies=%d sigma_status=%s)",
+            time.monotonic() - started,
+            len(events),
+            int((results.get("summary") or {}).get("event_count_total") or len(events)),
+            len(results.get("anomalies") or []),
+            results.get("sigma_status", "ready"),
+        )
         return history.id
+    except Exception as exc:
+        if job_id:
+            update_job_status(job_id, state="failed", stage="failed", progress=100, error_message=str(exc), mark_finished=True)
+        raise
     finally:
         _safe_unlink(path)
 
 @celery.task(name="app.process_memory_task")
-def process_memory_task(path, stored_filename, input_name, user_id):
+def process_memory_task(path, stored_filename, input_name, user_id, job_id=None):
+    started = time.monotonic()
+    if job_id:
+        update_job_status(job_id, state="running", stage="parse", progress=10, mark_started=True)
     try:
         raw_output = _read_memory_input(path, stored_filename)
         parsed_output = analyze_generic_output(raw_output, input_name=input_name)
+        if job_id:
+            update_job_status(job_id, state="running", stage="enrich", progress=45)
         parsed_output = enrich_analysis_results(
             parsed_output,
             "memory",
@@ -731,16 +1097,110 @@ def process_memory_task(path, stored_filename, input_name, user_id):
             "input_name": input_name,
         }
         ship_events(events, "memory")
-        history = AnalysisHistory(type="memory_triage", user_id=user_id, results_json=json.dumps(results, default=str), filename=input_name)
+
+        run_async_sigma = bool(job_id) and ASYNC_SIGMA_POSTPROCESS
+        results["sigma_status"] = "queued" if run_async_sigma else "ready"
+        if run_async_sigma:
+            results["sigma_matches"] = []
+
+        history = AnalysisHistory(type="memory_triage", user_id=user_id, filename=input_name)
+        history.set_results(results)
         db.session.add(history)
         db.session.commit()
+
+        if run_async_sigma:
+            if job_id:
+                update_job_status(
+                    job_id,
+                    state="partial",
+                    stage="post_rule_match",
+                    progress=90,
+                    history_id=history.id,
+                    summary=extract_result_summary(results),
+                )
+                persist_dfir_outputs(job_id, results, sigma_matches=[])
+                postprocess_sigma_task.apply_async(args=(history.id, "memory", job_id), queue="rules")
+        else:
+            matches = _resolve_sigma(results, "memory")
+            results["sigma_status"] = "ready"
+            history.set_results(results)
+            db.session.commit()
+            if job_id:
+                update_job_status(
+                    job_id,
+                    state="succeeded",
+                    stage="complete",
+                    progress=100,
+                    history_id=history.id,
+                    summary=extract_result_summary(results),
+                    mark_finished=True,
+                )
+                persist_dfir_outputs(job_id, results, sigma_matches=matches)
+
+        app.logger.info(
+            "process_memory_task completed in %.3fs (events=%d anomalies=%d sigma_status=%s)",
+            time.monotonic() - started,
+            len(events),
+            len(results.get("anomalies") or []),
+            results.get("sigma_status", "ready"),
+        )
         return history.id
+    except Exception as exc:
+        if job_id:
+            update_job_status(job_id, state="failed", stage="failed", progress=100, error_message=str(exc), mark_finished=True)
+        raise
     finally:
         _safe_unlink(path)
+
+
+@celery.task(name="app.postprocess_sigma_task")
+def postprocess_sigma_task(history_id, analysis_type, job_id=None):
+    analysis = db.session.get(AnalysisHistory, int(history_id))
+    if not analysis:
+        if job_id:
+            update_job_status(job_id, state="failed", stage="failed", progress=100, error_message="History not found for sigma postprocess", mark_finished=True)
+        return 0
+
+    if job_id:
+        update_job_status(job_id, state="running", stage="rule_match", progress=94)
+
+    try:
+        results = analysis.get_results() or {}
+        matches = _resolve_sigma(results, analysis_type, force_recompute=True)
+        results["sigma_status"] = "ready"
+        analysis.set_results(results)
+        db.session.commit()
+
+        if job_id:
+            update_job_status(
+                job_id,
+                state="succeeded",
+                stage="complete",
+                progress=100,
+                summary=extract_result_summary(results),
+                mark_finished=True,
+            )
+            persist_dfir_outputs(job_id, results, sigma_matches=matches)
+        return len(matches)
+    except Exception as exc:
+        db.session.rollback()
+        if job_id:
+            update_job_status(job_id, state="failed", stage="failed", progress=100, error_message=str(exc), mark_finished=True)
+        raise
 
 @app.route("/task/status/<task_id>")
 @login_required
 def task_status(task_id):
+    job = get_job_by_task_id(task_id)
+    if job:
+        if job.history_id and job.state in {"succeeded", "partial"}:
+            if job.state == "partial":
+                flash("Core analysis completed. Rule correlation is finishing in background.", "info")
+            return redirect(url_for("view_history", id=job.history_id))
+        if job.state == "failed":
+            flash(job.error_message or "An error occurred during analysis.", "danger")
+            return redirect(url_for("dashboard"))
+
     task = celery.AsyncResult(task_id)
     if task.state == 'PENDING':
         return render_template("loading.html", task_id=task_id, status="Pending...")
@@ -751,6 +1211,127 @@ def task_status(task_id):
     else:
         flash("An error occurred during analysis.", "danger")
         return redirect(url_for("dashboard"))
+
+
+@app.route("/api/jobs/<task_id>/status")
+@login_required
+def api_job_status(task_id):
+    job = get_job_by_task_id(task_id)
+    if job:
+        payload = job.as_status()
+        payload["ready"] = bool(job.history_id) and job.state in {"succeeded", "partial"}
+        payload["failed"] = job.state == "failed"
+        payload["redirect_url"] = url_for("view_history", id=job.history_id) if payload["ready"] else None
+        return jsonify(payload)
+
+    task = celery.AsyncResult(task_id)
+    payload = {
+        "task_id": task_id,
+        "state": str(task.state).lower(),
+        "stage": str(task.state).lower(),
+        "progress": 0,
+        "ready": False,
+        "failed": task.state == "FAILURE",
+        "redirect_url": None,
+        "error_message": "",
+    }
+    if task.state == "PENDING":
+        payload["progress"] = 5
+    elif task.state in {"STARTED", "RETRY"}:
+        payload["progress"] = 40
+    elif task.state == "SUCCESS":
+        payload["ready"] = True
+        payload["progress"] = 100
+        payload["redirect_url"] = url_for("view_history", id=task.result)
+    elif task.state == "FAILURE":
+        payload["progress"] = 100
+        payload["error_message"] = "Background task failed."
+    return jsonify(payload)
+
+
+@app.route("/api/cases")
+@login_required
+def api_cases():
+    limit = _env_int("FORENSIS_API_CASES_LIMIT", 100, min_value=1, max_value=500)
+    query = Case.query.order_by(Case.updated_at.desc())
+    if current_user.role != "admin":
+        query = query.filter_by(owner_user_id=current_user.id)
+    cases = query.limit(limit).all()
+    payload = []
+    for c in cases:
+        payload.append(
+            {
+                "id": c.id,
+                "case_key": c.case_key,
+                "title": c.title,
+                "status": c.status,
+                "severity": c.severity,
+                "owner_user_id": c.owner_user_id,
+                "schema_version": c.schema_version,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+                "artifact_count": len(c.artifacts),
+                "job_count": len(c.jobs),
+                "finding_count": len(c.findings),
+            }
+        )
+    return jsonify({"items": payload, "count": len(payload)})
+
+
+@app.route("/api/jobs")
+@login_required
+def api_jobs():
+    limit = _env_int("FORENSIS_API_JOBS_LIMIT", 200, min_value=1, max_value=1000)
+    query = AnalysisJob.query.order_by(AnalysisJob.id.desc())
+    state = (request.args.get("state") or "").strip().lower()
+    job_type = (request.args.get("job_type") or "").strip().lower()
+    case_id_raw = (request.args.get("case_id") or "").strip()
+
+    if state:
+        query = query.filter_by(state=state)
+    if job_type:
+        query = query.filter_by(job_type=job_type)
+    if case_id_raw.isdigit():
+        query = query.filter_by(case_id=int(case_id_raw))
+
+    if current_user.role != "admin":
+        query = query.filter_by(submitted_by_user_id=current_user.id)
+
+    items = [job.as_status() for job in query.limit(limit).all()]
+    return jsonify({"items": items, "count": len(items)})
+
+
+@app.route("/api/jobs/<int:job_id>")
+@login_required
+def api_job_detail(job_id):
+    job = db.session.get(AnalysisJob, int(job_id))
+    if not job:
+        return jsonify({"error": "not_found"}), 404
+    if current_user.role != "admin" and job.submitted_by_user_id != current_user.id:
+        return jsonify({"error": "forbidden"}), 403
+
+    artifact = db.session.get(Artifact, job.artifact_id) if job.artifact_id else None
+    case = db.session.get(Case, job.case_id) if job.case_id else None
+
+    payload = job.as_status()
+    payload["summary"] = job.get_result_summary()
+    payload["case"] = {
+        "id": case.id,
+        "case_key": case.case_key,
+        "title": case.title,
+        "status": case.status,
+        "severity": case.severity,
+    } if case else None
+    payload["artifact"] = {
+        "id": artifact.id,
+        "artifact_type": artifact.artifact_type,
+        "filename": artifact.filename,
+        "storage_backend": artifact.storage_backend,
+        "size_bytes": artifact.size_bytes,
+        "sha256": artifact.sha256,
+        "created_at": artifact.created_at.isoformat() if artifact.created_at else None,
+    } if artifact else None
+    return jsonify(payload)
 
 @app.route("/log-analyzer", methods=["GET", "POST"])
 @login_required
@@ -780,7 +1361,28 @@ def log_analyzer():
         if not log_text:
             flash("Provide log data.", "warning")
             return _safe_redirect(request.url, "log_analyzer")
-        task = process_logs_task.delay(log_text, log_type, filename, current_user.id)
+        case = get_or_create_active_case(current_user.id, "logs", filename or "pasted_logs.txt")
+        artifact = register_artifact(
+            case_id=case.id,
+            uploaded_by_user_id=current_user.id,
+            artifact_type="logs",
+            filename=filename or "pasted_logs.txt",
+            storage_backend="inline",
+            metadata={
+                "log_type": log_type,
+                "ingest_mode": "upload" if filename else "paste",
+                "input_size_bytes": len(log_text.encode("utf-8", errors="ignore")),
+            },
+        )
+        job = create_analysis_job(
+            job_type="logs",
+            submitted_by_user_id=current_user.id,
+            case_id=case.id,
+            artifact_id=artifact.id,
+            queue_name="logs",
+        )
+        task = process_logs_task.apply_async(args=(log_text, log_type, filename, current_user.id, job.id), queue="logs")
+        bind_job_task(job.id, task.id)
         return redirect(url_for('task_status', task_id=task.id))
     return render_template("log_analyzer.html", results=None)
 
@@ -799,11 +1401,33 @@ def network_analyzer():
             return _safe_redirect(request.url, "network_analyzer")
         filename, path, _ = _build_upload_path(file.filename)
         file.save(path)
+        if os.path.getsize(path) > PCAP_MAX_UPLOAD_BYTES:
+            _safe_unlink(path)
+            flash(f"PCAP file is too large (max {PCAP_MAX_UPLOAD_BYTES // (1024 * 1024)} MB).", "danger")
+            return _safe_redirect(request.url, "network_analyzer")
         if not is_safe_content(path, "pcap"):
             _safe_unlink(path)
             flash("Invalid PCAP.", "danger")
             return _safe_redirect(request.url, "network_analyzer")
-        task = process_network_task.delay(path, filename, current_user.id)
+        case = get_or_create_active_case(current_user.id, "network", filename)
+        artifact = register_artifact(
+            case_id=case.id,
+            uploaded_by_user_id=current_user.id,
+            artifact_type="network",
+            filename=filename,
+            storage_path=path,
+            storage_backend="local",
+            metadata={"ingest_mode": "upload", "format": filename.rsplit(".", 1)[-1].lower()},
+        )
+        job = create_analysis_job(
+            job_type="network",
+            submitted_by_user_id=current_user.id,
+            case_id=case.id,
+            artifact_id=artifact.id,
+            queue_name="network",
+        )
+        task = process_network_task.apply_async(args=(path, filename, current_user.id, job.id), queue="network")
+        bind_job_task(job.id, task.id)
         return redirect(url_for('task_status', task_id=task.id))
     return render_template("network_analyzer.html", results=None)
 
@@ -813,9 +1437,6 @@ def network_analyzer():
 def memory_helper():
     playbook = None
     helper_sheets = _helper_cheatsheets()
-    active_tab = (request.args.get("tab") or "generate").strip().lower()
-    if active_tab not in {"generate", "cheatsheets"}:
-        active_tab = "generate"
 
     if request.method == "POST":
         if not _require_csrf():
@@ -824,7 +1445,6 @@ def memory_helper():
         if mode != "playbook":
             return redirect(url_for("memory_triage"))
 
-        active_tab = "generate"
         category = request.form.get("category") or "memory"
         profile = request.form.get("profile") or "windows.generic"
         playbook = get_playbook(category, profile)
@@ -848,7 +1468,6 @@ def memory_helper():
         "memory_helper.html",
         playbook=playbook,
         helper_sheets=helper_sheets,
-        active_tab=active_tab,
     )
 
 
@@ -874,7 +1493,7 @@ def memory_triage():
             file.save(path)
             ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
             max_size = MEMORY_TEXT_MAX_BYTES
-            if ext in {"vmem", "mem"}:
+            if ext in {"vmem", "mem", "raw", "dmp", "img", "bin"}:
                 max_size = MEMORY_IMAGE_MAX_BYTES
             elif ext == "zip":
                 max_size = MEMORY_ARCHIVE_MAX_BYTES
@@ -902,7 +1521,25 @@ def memory_triage():
             flash("No data.", "warning")
             return _safe_redirect(request.url, "memory_triage")
 
-        task = process_memory_task.delay(path, stored_filename, filename, current_user.id)
+        case = get_or_create_active_case(current_user.id, "memory", filename)
+        artifact = register_artifact(
+            case_id=case.id,
+            uploaded_by_user_id=current_user.id,
+            artifact_type="memory",
+            filename=filename,
+            storage_path=path,
+            storage_backend="local",
+            metadata={"ingest_mode": "upload" if file and file.filename else "paste"},
+        )
+        job = create_analysis_job(
+            job_type="memory",
+            submitted_by_user_id=current_user.id,
+            case_id=case.id,
+            artifact_id=artifact.id,
+            queue_name="memory",
+        )
+        task = process_memory_task.apply_async(args=(path, stored_filename, filename, current_user.id, job.id), queue="memory")
+        bind_job_task(job.id, task.id)
         return redirect(url_for("task_status", task_id=task.id))
 
     return render_template(
@@ -930,12 +1567,31 @@ def view_history(id):
         flash("Permission denied.", "danger")
         return redirect(url_for("history"))
     results = analysis.get_results()
+    if not isinstance(results, dict):
+        flash("Invalid analysis data.", "danger")
+        return redirect(url_for("history"))
+
+    had_sigma_cache = isinstance(results.get("sigma_matches"), list)
+    compacted_network = False
+    if analysis.type == "network":
+        events_before = len(results.get("events") or [])
+        if events_before > NETWORK_EVENTS_STORE_LIMIT:
+            _compact_network(results)
+            compacted_network = True
+    sigma_matches = _resolve_sigma(results, analysis.type)
+    if ((not had_sigma_cache and isinstance(results.get("sigma_matches"), list)) or compacted_network):
+        try:
+            analysis.set_results(results)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
     if analysis.type == "logs":
          LAST_RESULTS["logs"] = results
-         return render_template("log_analyzer.html", results=results, sigma_matches=sigma_engine.correlate_events(results.get("events", [])), historical=True)
+         return render_template("log_analyzer.html", results=results, sigma_matches=sigma_matches, historical=True)
     elif analysis.type == "network":
          LAST_RESULTS["network"] = results
-         return render_template("network_analyzer.html", results=results, sigma_matches=sigma_engine.correlate_events(results.get("events", [])), historical=True)
+         return render_template("network_analyzer.html", results=results, sigma_matches=sigma_matches, historical=True)
     elif "memory" in analysis.type:
          LAST_RESULTS["memory"] = results
          if analysis.type == "memory_playbook":
@@ -949,7 +1605,6 @@ def view_history(id):
              )
          if analysis.type == "memory_triage":
              parsed_output = results.get("parsed_output") or results
-             sigma_matches = sigma_engine.correlate_events(results.get("events", []))
              return render_template(
                  "memory_triage.html",
                  parsed_output=parsed_output,
@@ -959,7 +1614,6 @@ def view_history(id):
          parsed_output = results.get("parsed_output")
          if parsed_output is None and results.get("summary") is not None:
              parsed_output = results
-         sigma_matches = sigma_engine.correlate_events(results.get("events", []))
          if parsed_output is not None:
              return render_template(
                  "memory_triage.html",
@@ -996,7 +1650,8 @@ def reset_data():
     return redirect(url_for('dashboard'))
 
 def save_history(type, results, filename=None):
-    history = AnalysisHistory(type=type, user_id=current_user.id, results_json=json.dumps(results, default=str), filename=filename)
+    history = AnalysisHistory(type=type, user_id=current_user.id, filename=filename)
+    history.set_results(results)
     db.session.add(history)
     db.session.commit()
 
@@ -1201,24 +1856,33 @@ def export_report_bundle():
     resp.headers["Content-Disposition"] = "attachment; filename=forensis_report_bundle.zip"
     return resp
 
-if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
-        admin_user = os.getenv("FORENSIS_ADMIN_USER", "admin")
-        if not User.query.filter_by(username=admin_user).first():
-            admin_pass = os.getenv("FORENSIS_ADMIN_PASSWORD", "forensis123")
-            hashed_pw = bcrypt.generate_password_hash(admin_pass).decode("utf-8")
-            default_group = Group.query.filter_by(name="Administrators").first()
-            if not default_group:
-                default_group = Group(name="Administrators")
-                db.session.add(default_group)
-                db.session.commit()
-            new_admin = User(
-                username=admin_user,
-                password_hash=hashed_pw,
-                role="admin",
-                group_id=default_group.id,
-            )
-            db.session.add(new_admin)
+def _bootstrap_database():
+    db.create_all()
+    _ensure_runtime_indexes()
+    admin_user = os.getenv("FORENSIS_ADMIN_USER", "admin")
+    if not User.query.filter_by(username=admin_user).first():
+        admin_pass = os.getenv("FORENSIS_ADMIN_PASSWORD", "forensis123")
+        hashed_pw = bcrypt.generate_password_hash(admin_pass).decode("utf-8")
+        default_group = Group.query.filter_by(name="Administrators").first()
+        if not default_group:
+            default_group = Group(name="Administrators")
+            db.session.add(default_group)
             db.session.commit()
+        new_admin = User(
+            username=admin_user,
+            password_hash=hashed_pw,
+            role="admin",
+            group_id=default_group.id,
+        )
+        db.session.add(new_admin)
+        db.session.commit()
+
+
+with app.app_context():
+    run_bootstrap = os.getenv("FORENSIS_BOOTSTRAP_DB", "1").strip().lower() in {"1", "true", "yes", "on"}
+    if run_bootstrap:
+        _bootstrap_database()
+
+
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)

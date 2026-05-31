@@ -10,19 +10,22 @@
 
 <div class="card shadow-sm">
     <div class="card-body p-4">
-        <form method="post" enctype="multipart/form-data">
+        <form method="post" enctype="multipart/form-data" id="memoryForm">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="mb-3">
                 <label class="form-label fw-bold">Upload Memory Tool Output</label>
-                <input type="file" name="memory_file" class="form-control" accept=".txt,.log,.json,.jsonl,.ndjson,.csv,.tsv,.xml,.yaml,.yml,.zip,.vmem,.mem">
-                <div class="form-text">Supported formats: TXT, LOG, JSON, JSONL/NDJSON, CSV, TSV, XML, YAML, ZIP bundle, VMEM, MEM.</div>
+                <input type="file" name="memory_file" class="form-control" accept=".txt,.log,.json,.jsonl,.ndjson,.csv,.tsv,.xml,.yaml,.yml,.zip,.vmem,.mem,.raw,.dmp,.img,.bin">
+                <div class="form-text">Supported formats: TXT, LOG, JSON, JSONL/NDJSON, CSV, TSV, XML, YAML, ZIP bundle, VMEM, MEM, RAW, DMP, IMG, BIN.</div>
             </div>
             <div class="mb-3">
                 <label class="form-label fw-bold">Or Paste Raw Output</label>
                 <textarea name="raw_output" class="form-control" rows="10" placeholder="Paste Volatility / Rekall / EDR output here..."></textarea>
             </div>
             <div class="text-end">
-                <button type="submit" class="btn btn-primary">Analyze Output</button>
+                <button type="submit" class="btn btn-primary" id="memorySubmitBtn">
+                    <span class="submit-label">Analyze Output</span>
+                    <span class="submit-loading d-none"><i class="fas fa-spinner fa-spin me-1"></i>Submitting...</span>
+                </button>
             </div>
         </form>
     </div>
@@ -215,7 +218,12 @@
             </h2>
             <div id="collapseMemSigma" class="accordion-collapse collapse">
                 <div class="accordion-body">
-                    {% if sigma_matches %}
+                    {% if parsed_output.sigma_status == 'queued' %}
+                    <p class="text-info mb-0">
+                        <i class="fas fa-spinner fa-spin me-1"></i>
+                        Sigma correlation is running in the background. Please refresh shortly.
+                    </p>
+                    {% elif sigma_matches %}
                     <ul class="list-group list-group-flush small">
                         {% for m in sigma_matches %}
                         <li class="list-group-item">
@@ -237,4 +245,15 @@
     </div>
 </div>
 {% endif %}
+<script>
+    const memoryForm = document.getElementById("memoryForm");
+    const memorySubmitBtn = document.getElementById("memorySubmitBtn");
+    if (memoryForm && memorySubmitBtn) {
+        memoryForm.addEventListener("submit", function () {
+            memorySubmitBtn.disabled = true;
+            memorySubmitBtn.querySelector(".submit-label")?.classList.add("d-none");
+            memorySubmitBtn.querySelector(".submit-loading")?.classList.remove("d-none");
+        });
+    }
+</script>
 {% endblock %}
