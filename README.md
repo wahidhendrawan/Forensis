@@ -2,6 +2,11 @@
 
 # Forensis
 
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL-3.0-blue.svg)](https://github.com/wahidhendrawan/Forensis/blob/main/LICENSE)
+[![Release](https://img.shields.io/badge/release-v1.0.0-green.svg)](https://github.com/wahidhendrawan/Forensis/releases)
+[![CI](https://github.com/wahidhendrawan/Forensis/actions/workflows/ci.yml/badge.svg)](https://github.com/wahidhendrawan/Forensis/actions)
+[![Pages](https://img.shields.io/badge/docs-🌐-orange.svg)](https://wahidhendrawan.github.io/Forensis/)
+
 Forensis is an open-source web platform for threat analysis and digital forensics operations.
 It provides a unified workflow for log analysis, network packet inspection, memory triage,
 multi-engine detection correlation, and secure user administration.
