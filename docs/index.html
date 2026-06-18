@@ -3,43 +3,110 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Threat analysis and digital forensics platform with log analyzers, memory triage, and Sigma correlation.">
-<title>Forensis | Digital Forensics & Threat Analysis</title>
+<meta name="description" content="Digital forensics and threat analysis platform with log analyzers, memory triage, and Sigma correlation.">
+<title>Forensis | Digital Forensics & Threat Analysis Platform</title>
 <style>
+:root{--accent:#ef4444;--accent-dim:#ef444420;--bg:#0a0e1a;--surface:#111827;--border:#1f2937;--text:#f1f5f9;--muted:#94a3b8}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;line-height:1.6}
-.hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;text-align:center;background:linear-gradient(135deg,#0f172a 0%,#1e293b 50%,#0f172a 100%)}
-.badge{display:inline-block;padding:.4rem 1rem;background:#dc262620;color:#ef4444;border:1px solid #dc262640;border-radius:20px;font-size:.85rem;margin-bottom:1.5rem}
-h1{font-size:clamp(2.5rem,6vw,4rem);margin-bottom:1rem;background:linear-gradient(135deg,#ef4444,#dc2626);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.lead{font-size:1.25rem;color:#94a3b8;max-width:600px;margin-bottom:2.5rem}
-.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1.5rem;max-width:800px;margin:3rem auto;padding:0 1rem}
-.feature{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:1.5rem;text-align:left}
-.feature h3{color:#ef4444;margin-bottom:.5rem;font-size:1rem}
-.feature p{color:#94a3b8;font-size:.9rem}
-.actions{display:flex;gap:1rem;flex-wrap:wrap;justify-content:center}
-.btn{display:inline-block;padding:.75rem 2rem;border-radius:8px;text-decoration:none;font-weight:600;font-size:1rem;transition:transform .15s}
-.btn:hover{transform:translateY(-2px)}
-.btn-primary{background:#dc2626;color:#fff}
-.btn-secondary{background:#1e293b;color:#e2e8f0;border:1px solid #334155}
-footer{text-align:center;padding:2rem;color:#64748b;font-size:.85rem;border-top:1px solid #1e293b}
+body{font-family:Inter,system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.7;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+nav{position:fixed;top:0;width:100%;padding:1rem 2rem;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(20px);background:rgba(10,14,26,.8);border-bottom:1px solid var(--border);z-index:100}
+.logo{font-weight:700;font-size:1.1rem;display:flex;align-items:center;gap:.5rem}
+.logo-icon{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.8rem;color:#fff}
+.nav-links{display:flex;gap:2rem}
+.nav-links a{color:var(--muted);font-size:.9rem;transition:color .2s}
+.nav-links a:hover{color:var(--text)}
+.hero{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:8rem 2rem 4rem;position:relative}
+.hero::before{content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(ellipse at 50% 0%,var(--accent-dim) 0%,transparent 60%);pointer-events:none}
+.hero-content{max-width:900px;text-align:center;position:relative}
+.chip{display:inline-flex;align-items:center;gap:.5rem;padding:.5rem 1.2rem;background:var(--accent-dim);border:1px solid var(--accent);border-radius:100px;font-size:.8rem;color:var(--accent);margin-bottom:2rem;font-weight:500}
+.hero h1{font-size:clamp(2.8rem,7vw,4.5rem);font-weight:800;letter-spacing:-.02em;margin-bottom:1.5rem;line-height:1.1}
+.hero h1 span{background:linear-gradient(135deg,#ef4444,#f87171,#dc2626);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero p{font-size:1.2rem;color:var(--muted);max-width:600px;margin:0 auto 2.5rem}
+.btn-group{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}
+.btn{padding:.85rem 2rem;border-radius:10px;font-weight:600;font-size:.95rem;transition:all .2s}
+.btn-primary{background:var(--accent);color:#fff;box-shadow:0 4px 20px rgba(239,68,68,.3)}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(239,68,68,.4)}
+.btn-ghost{border:1px solid var(--border);color:var(--text)}
+.btn-ghost:hover{border-color:var(--muted);background:var(--surface)}
+
+/* Investigation timeline */
+.timeline{margin:4rem auto 0;max-width:600px;text-align:left;position:relative;padding-left:2rem}
+.timeline::before{content:'';position:absolute;left:7px;top:0;bottom:0;width:2px;background:linear-gradient(180deg,var(--accent),var(--border))}
+.tl-item{position:relative;margin-bottom:1.5rem;padding-left:1.5rem}
+.tl-item::before{content:'';position:absolute;left:-1.65rem;top:.5rem;width:12px;height:12px;background:var(--accent);border-radius:50%;border:2px solid var(--bg)}
+.tl-item.done::before{background:#22c55e}
+.tl-time{font-size:.75rem;color:var(--muted);font-family:monospace}
+.tl-text{font-size:.9rem;margin-top:.2rem}
+
+.features{padding:6rem 2rem;max-width:1100px;margin:0 auto}
+.features h2{text-align:center;font-size:2.2rem;margin-bottom:.5rem}
+.features .subtitle{text-align:center;color:var(--muted);margin-bottom:3rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.5rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:2rem;transition:all .3s}
+.card:hover{border-color:var(--accent);transform:translateY(-4px);box-shadow:0 12px 40px rgba(239,68,68,.08)}
+.card-icon{width:44px;height:44px;background:var(--accent-dim);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;margin-bottom:1rem}
+.card h3{font-size:1.05rem;margin-bottom:.5rem}
+.card p{color:var(--muted);font-size:.9rem}
+
+.cta{padding:5rem 2rem;text-align:center;border-top:1px solid var(--border)}
+.cta h2{font-size:1.8rem;margin-bottom:1rem}
+.cta p{color:var(--muted);margin-bottom:2rem}
+footer{padding:3rem 2rem;text-align:center;color:var(--muted);font-size:.85rem}
+footer a{color:var(--accent)}
+@media(max-width:768px){.nav-links{display:none}}
 </style>
 </head>
 <body>
-<section class="hero">
-<span class="badge">🔎 Digital Forensics</span>
-<h1>Forensis</h1>
-<p class="lead">Threat analysis and digital forensics platform with log and network analyzers, memory triage, playbook helpers, Sigma correlation, and MFA-enabled administration.</p>
-<div class="actions">
-<a class="btn btn-primary" href="https://github.com/wahidhendrawan/Forensis">View on GitHub</a>
-<a class="btn btn-secondary" href="https://github.com/wahidhendrawan/Forensis#readme">Documentation</a>
+<nav>
+<div class="logo"><div class="logo-icon">F</div>Forensis</div>
+<div class="nav-links">
+<a href="#features">Capabilities</a>
+<a href="#start">Get Started</a>
+<a href="https://github.com/wahidhendrawan/Forensis">GitHub</a>
 </div>
-<div class="features">
-<div class="feature"><h3>Log Analysis</h3><p>Parse Apache, Syslog, CSV, JSON, Elastic, and Splunk log formats with automated pattern detection.</p></div>
-<div class="feature"><h3>Memory Triage</h3><p>Quick memory artifact extraction for incident response without full forensic imaging.</p></div>
-<div class="feature"><h3>Sigma Correlation</h3><p>Match log events against Sigma rules for automated threat detection during investigations.</p></div>
-<div class="feature"><h3>Network Analysis</h3><p>PCAP parsing, connection mapping, and protocol-level inspection for lateral movement detection.</p></div>
+</nav>
+
+<section class="hero">
+<div class="hero-content">
+<div class="chip">🔎 DFIR Platform</div>
+<h1>Investigate incidents with <span>forensic precision</span></h1>
+<p>Digital forensics platform with log and network analyzers, memory triage, Sigma correlation, investigation playbooks, and MFA-enabled team administration.</p>
+<div class="btn-group">
+<a class="btn btn-primary" href="https://github.com/wahidhendrawan/Forensis">Get Started</a>
+<a class="btn btn-ghost" href="https://github.com/wahidhendrawan/Forensis#readme">Documentation</a>
+</div>
+<div class="timeline">
+<div class="tl-item done"><div class="tl-time">09:14:02 UTC</div><div class="tl-text">Alert triggered: Suspicious PowerShell execution on WORKSTATION-12</div></div>
+<div class="tl-item done"><div class="tl-time">09:14:08 UTC</div><div class="tl-text">Sigma match: T1059.001 — PowerShell encoded command</div></div>
+<div class="tl-item done"><div class="tl-time">09:15:30 UTC</div><div class="tl-text">Log correlation: lateral movement to DC-01 via SMB</div></div>
+<div class="tl-item"><div class="tl-time">09:16:45 UTC</div><div class="tl-text">Memory triage initiated on WORKSTATION-12</div></div>
+<div class="tl-item"><div class="tl-time">09:22:00 UTC</div><div class="tl-text">Investigation report generated → case-2026-0618.pdf</div></div>
+</div>
 </div>
 </section>
-<footer>Forensis — Open source under GPL-3.0 · Built for DFIR teams</footer>
+
+<section class="features" id="features">
+<h2>Full investigation toolkit</h2>
+<p class="subtitle">From alert to report in one platform.</p>
+<div class="grid">
+<div class="card"><div class="card-icon">📄</div><h3>Log Analysis</h3><p>Parse Apache, Syslog, CSV, JSON, Elastic, and Splunk formats with automated anomaly detection.</p></div>
+<div class="card"><div class="card-icon">🧠</div><h3>Memory Triage</h3><p>Extract process trees, network connections, and injected code from memory dumps quickly.</p></div>
+<div class="card"><div class="card-icon">🌐</div><h3>Network Forensics</h3><p>PCAP analysis, DNS query inspection, connection mapping, and C2 beacon detection.</p></div>
+<div class="card"><div class="card-icon">⚡</div><h3>Sigma Correlation</h3><p>Real-time event matching against Sigma rules during live investigations.</p></div>
+<div class="card"><div class="card-icon">📒</div><h3>Playbook Helper</h3><p>Guided investigation steps with checklists, evidence collection prompts, and chain of custody.</p></div>
+<div class="card"><div class="card-icon">🔐</div><h3>MFA Admin</h3><p>Secure multi-user access with MFA, role-based permissions, and audit logging.</p></div>
+</div>
+</section>
+
+<section class="cta" id="start">
+<h2>Start investigating</h2>
+<p>Clone the repo and follow the setup guide to deploy Forensis locally or on your team's infrastructure.</p>
+<a class="btn btn-primary" href="https://github.com/wahidhendrawan/Forensis#readme">Setup Guide →</a>
+</section>
+
+<footer>
+<p>Forensis is open source under the <a href="https://github.com/wahidhendrawan/Forensis/blob/main/LICENSE">GPL-3.0 license</a>. Built by <a href="https://github.com/wahidhendrawan">Wahid Hendrawan</a>.</p>
+</footer>
 </body>
 </html>
