@@ -3,22 +3,43 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Forensis</title>
+<meta name="description" content="Threat analysis and digital forensics platform with log analyzers, memory triage, and Sigma correlation.">
+<title>Forensis | Digital Forensics & Threat Analysis</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;display:flex;align-items:center;justify-content:center}
-.card{max-width:600px;padding:3rem;text-align:center}
-h1{font-size:2.5rem;margin-bottom:1rem}
-p{font-size:1.2rem;color:#94a3b8;margin-bottom:2rem;line-height:1.6}
-a{display:inline-block;padding:.75rem 2rem;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;font-weight:600}
-a:hover{background:#2563eb}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;line-height:1.6}
+.hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;text-align:center;background:linear-gradient(135deg,#0f172a 0%,#1e293b 50%,#0f172a 100%)}
+.badge{display:inline-block;padding:.4rem 1rem;background:#dc262620;color:#ef4444;border:1px solid #dc262640;border-radius:20px;font-size:.85rem;margin-bottom:1.5rem}
+h1{font-size:clamp(2.5rem,6vw,4rem);margin-bottom:1rem;background:linear-gradient(135deg,#ef4444,#dc2626);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.lead{font-size:1.25rem;color:#94a3b8;max-width:600px;margin-bottom:2.5rem}
+.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1.5rem;max-width:800px;margin:3rem auto;padding:0 1rem}
+.feature{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:1.5rem;text-align:left}
+.feature h3{color:#ef4444;margin-bottom:.5rem;font-size:1rem}
+.feature p{color:#94a3b8;font-size:.9rem}
+.actions{display:flex;gap:1rem;flex-wrap:wrap;justify-content:center}
+.btn{display:inline-block;padding:.75rem 2rem;border-radius:8px;text-decoration:none;font-weight:600;font-size:1rem;transition:transform .15s}
+.btn:hover{transform:translateY(-2px)}
+.btn-primary{background:#dc2626;color:#fff}
+.btn-secondary{background:#1e293b;color:#e2e8f0;border:1px solid #334155}
+footer{text-align:center;padding:2rem;color:#64748b;font-size:.85rem;border-top:1px solid #1e293b}
 </style>
 </head>
 <body>
-<div class="card">
+<section class="hero">
+<span class="badge">🔎 Digital Forensics</span>
 <h1>Forensis</h1>
-<p>Threat analysis and digital forensics platform with log and network analyzers, memory triage, playbook helper, Sigma correlation, and MFA-enabled administration.</p>
-<a href="https://github.com/wahidhendrawan/Forensis">View on GitHub</a>
+<p class="lead">Threat analysis and digital forensics platform with log and network analyzers, memory triage, playbook helpers, Sigma correlation, and MFA-enabled administration.</p>
+<div class="actions">
+<a class="btn btn-primary" href="https://github.com/wahidhendrawan/Forensis">View on GitHub</a>
+<a class="btn btn-secondary" href="https://github.com/wahidhendrawan/Forensis#readme">Documentation</a>
 </div>
+<div class="features">
+<div class="feature"><h3>Log Analysis</h3><p>Parse Apache, Syslog, CSV, JSON, Elastic, and Splunk log formats with automated pattern detection.</p></div>
+<div class="feature"><h3>Memory Triage</h3><p>Quick memory artifact extraction for incident response without full forensic imaging.</p></div>
+<div class="feature"><h3>Sigma Correlation</h3><p>Match log events against Sigma rules for automated threat detection during investigations.</p></div>
+<div class="feature"><h3>Network Analysis</h3><p>PCAP parsing, connection mapping, and protocol-level inspection for lateral movement detection.</p></div>
+</div>
+</section>
+<footer>Forensis — Open source under GPL-3.0 · Built for DFIR teams</footer>
 </body>
 </html>
