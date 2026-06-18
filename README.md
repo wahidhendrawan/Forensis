@@ -1,3 +1,5 @@
+[![CI](https://github.com/wahidhendrawan/Forensis/actions/workflows/ci.yml/badge.svg)](https://github.com/wahidhendrawan/Forensis/actions/workflows/ci.yml)
+
 # Forensis
 
 Forensis is an open-source web platform for threat analysis and digital forensics operations.
