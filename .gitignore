@@ -10,3 +10,17 @@ uploads/
 sigma_rules/_sigmahq_baseline/
 sigma_rules/_remote/
 threat_intel/lookup_cache.json
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Database
+instance/*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+qa_datasets/logs/
