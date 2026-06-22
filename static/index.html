@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Forensis — Threat Analysis & Digital Forensics</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .fade-enter-active, .fade-leave-active { transition: opacity .15s ease; }
+  .fade-enter-from, .fade-leave-to { opacity: 0; }
+</style>
+</head>
+<body class="bg-gray-950 text-gray-200 min-h-screen">
+<div id="app">
+  <!-- Login Screen -->
+  <div v-if="!user" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950">
+    <div class="w-full max-w-md p-8 bg-gray-900/80 border border-gray-800 rounded-2xl shadow-2xl backdrop-blur">
+      <div class="text-center mb-8">
+        <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-emerald-500 mx-auto mb-4 flex items-center justify-center">
+          <span class="text-2xl font-black text-white">F</span>
+        </div>
+        <h1 class="text-2xl font-bold">Forensis</h1>
+        <p class="text-gray-500 text-sm mt-1">Threat Analysis & Digital Forensics</p>
+      </div>
+
+      <div v-if="error" class="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm">{{ error }}</div>
+
+      <form @submit.prevent="login" class="space-y-4">
+        <input v-model="loginForm.username" placeholder="Username" required
+          class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none text-white placeholder-gray-500">
+        <input v-model="loginForm.password" type="password" placeholder="Password" required
+          class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none text-white placeholder-gray-500">
+
+        <div v-if="mfaRequired" class="space-y-2">
+          <p class="text-amber-400 text-sm">🔐 MFA code required</p>
+          <input v-model="loginForm.otp" placeholder="6-digit code" maxlength="6"
+            class="w-full p-3 bg-gray-800 border border-amber-700 rounded-lg focus:border-amber-500 outline-none text-white">
+        </div>
+
+        <button type="submit" :disabled="loading"
+          class="w-full p-3 bg-gradient-to-r from-cyan-600 to-emerald-600 text-white font-semibold rounded-lg hover:from-cyan-500 hover:to-emerald-500 disabled:opacity-50 transition">
+          {{ loading ? 'Signing in...' : 'Sign In' }}
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div v-else class="flex min-h-screen">
+    <!-- Sidebar -->
+    <nav class="w-64 bg-gray-900/80 border-r border-gray-800 p-6 flex flex-col shrink-0">
+      <div class="flex items-center gap-3 mb-8">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500 to-emerald-500 flex items-center justify-center">
+          <span class="text-sm font-black text-white">F</span>
+        </div>
+        <div>
+          <p class="font-semibold text-sm">Forensis</p>
+          <p class="text-gray-500 text-xs">{{ user.username }} ({{ user.role }})</p>
+        </div>
+      </div>
+
+      <div class="space-y-1 flex-1">
+        <button @click="page='dashboard'" :class="navClass('dashboard')" class="w-full text-left px-3 py-2 rounded-lg text-sm transition">
+          📊 Dashboard
+        </button>
+        <button @click="page='log-analyzer'" :class="navClass('log-analyzer')" class="w-full text-left px-3 py-2 rounded-lg text-sm transition">
+          📋 Log Analyzer
+        </button>
+        <button @click="page='network-analyzer'" :class="navClass('network-analyzer')" class="w-full text-left px-3 py-2 rounded-lg text-sm transition">
+          🌐 Network Analyzer
+        </button>
+        <button @click="page='memory-triage'" :class="navClass('memory-triage')" class="w-full text-left px-3 py-2 rounded-lg text-sm transition">
+          💾 Memory Triage
+        </button>
+        <button @click="page='history'" :class="navClass('history')" class="w-full text-left px-3 py-2 rounded-lg text-sm transition">
+          🕐 History
+        </button>
+      </div>
+
+      <button @click="logout" class="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition mt-4">
+        🚪 Sign Out
+      </button>
+    </nav>
+
+    <!-- Content -->
+    <main class="flex-1 p-8 overflow-auto">
+      <!-- Dashboard -->
+      <div v-if="page==='dashboard'">
+        <h2 class="text-xl font-bold mb-6">Dashboard</h2>
+        <div class="grid grid-cols-3 gap-4 mb-8">
+          <div class="p-5 bg-gray-900/60 border border-gray-800 rounded-xl">
+            <p class="text-3xl font-bold text-cyan-400">{{ dashboard.counts?.logs || 0 }}</p>
+            <p class="text-gray-500 text-sm mt-1">Log Analyses</p>
+          </div>
+          <div class="p-5 bg-gray-900/60 border border-gray-800 rounded-xl">
+            <p class="text-3xl font-bold text-emerald-400">{{ dashboard.counts?.network || 0 }}</p>
+            <p class="text-gray-500 text-sm mt-1">Network Analyses</p>
+          </div>
+          <div class="p-5 bg-gray-900/60 border border-gray-800 rounded-xl">
+            <p class="text-3xl font-bold text-purple-400">{{ dashboard.counts?.memory || 0 }}</p>
+            <p class="text-gray-500 text-sm mt-1">Memory Analyses</p>
+          </div>
+        </div>
+
+        <h3 class="font-semibold mb-3">Recent Alerts</h3>
+        <div v-if="dashboard.recent_alerts?.length" class="space-y-2">
+          <div v-for="(alert, i) in dashboard.recent_alerts.slice(0, 10)" :key="i"
+            class="p-3 bg-gray-900/40 border border-gray-800 rounded-lg flex justify-between items-center text-sm">
+            <span>{{ alert.message }}</span>
+            <span class="text-gray-600 text-xs">{{ alert.type }}</span>
+          </div>
+        </div>
+        <p v-else class="text-gray-600 text-sm">No recent alerts. Run an analysis to get started.</p>
+      </div>
+
+      <!-- History -->
+      <div v-if="page==='history'">
+        <h2 class="text-xl font-bold mb-6">Analysis History</h2>
+        <div v-if="history.length" class="space-y-2">
+          <div v-for="h in history" :key="h.id"
+            class="p-3 bg-gray-900/40 border border-gray-800 rounded-lg flex justify-between items-center text-sm">
+            <div>
+              <span class="font-medium">{{ h.filename || 'Unnamed' }}</span>
+              <span class="text-gray-600 ml-3">{{ h.type }}</span>
+            </div>
+            <span class="text-gray-500 text-xs">{{ h.timestamp?.slice(0,10) }}</span>
+          </div>
+        </div>
+        <p v-else class="text-gray-600">Loading...</p>
+      </div>
+
+      <!-- Analyzer Pages -->
+      <div v-if="page==='log-analyzer'" class="text-center py-20 text-gray-500">
+        <p class="text-4xl mb-4">📋</p>
+        <p class="text-lg">Log Analyzer — open in classic view</p>
+        <a href="/log-analyzer" class="text-cyan-400 hover:underline mt-2 inline-block">Open classic analyzer →</a>
+      </div>
+      <div v-if="page==='network-analyzer'" class="text-center py-20 text-gray-500">
+        <p class="text-4xl mb-4">🌐</p>
+        <p class="text-lg">Network Analyzer — open in classic view</p>
+        <a href="/network-analyzer" class="text-cyan-400 hover:underline mt-2 inline-block">Open classic analyzer →</a>
+      </div>
+      <div v-if="page==='memory-triage'" class="text-center py-20 text-gray-500">
+        <p class="text-4xl mb-4">💾</p>
+        <p class="text-lg">Memory Triage — open in classic view</p>
+        <a href="/memory-triage" class="text-cyan-400 hover:underline mt-2 inline-block">Open classic analyzer →</a>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, onMounted } = Vue;
+
+createApp({
+  setup() {
+    const user = ref(null);
+    const page = ref('dashboard');
+    const loading = ref(false);
+    const error = ref('');
+    const mfaRequired = ref(false);
+    const dashboard = ref({ counts: {}, recent_alerts: [], correlation: {} });
+    const history = ref([]);
+    const loginForm = reactive({ username: '', password: '', otp: '' });
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, { credentials: 'same-origin', ...opts });
+      if (res.status === 401) { user.value = null; throw new Error('Unauthorized'); }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || res.statusText);
+      }
+      return res.json();
+    }
+
+    async function login() {
+      loading.value = true; error.value = '';
+      try {
+        const data = await api('/api/v1/auth/login', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            username: loginForm.username,
+            password: loginForm.password,
+            otp: loginForm.otp || '',
+          }),
+        });
+        if (data.mfa_required) {
+          mfaRequired.value = true;
+          loading.value = false;
+          return;
+        }
+        user.value = data;
+        mfaRequired.value = false;
+        await loadDashboard();
+        await loadHistory();
+      } catch (e) {
+        error.value = e.message || 'Login failed';
+        mfaRequired.value = false;
+      }
+      loading.value = false;
+    }
+
+    async function logout() {
+      await api('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
+      user.value = null;
+      page.value = 'dashboard';
+    }
+
+    async function loadDashboard() {
+      try { dashboard.value = await api('/api/v1/dashboard'); } catch {}
+    }
+
+    async function loadHistory() {
+      try {
+        const data = await api('/api/v1/history');
+        history.value = data.items || [];
+      } catch {}
+    }
+
+    function navClass(p) {
+      return page.value === p
+        ? 'bg-cyan-900/30 text-cyan-300 border border-cyan-700/30'
+        : 'text-gray-400 hover:bg-gray-800/50 hover:text-gray-200';
+    }
+
+    onMounted(async () => {
+      try {
+        user.value = await api('/api/v1/auth/me');
+        await loadDashboard();
+        await loadHistory();
+      } catch {
+        user.value = null;
+      }
+    });
+
+    return { user, page, loading, error, mfaRequired, dashboard, history, loginForm, login, logout, loadDashboard, loadHistory, navClass };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

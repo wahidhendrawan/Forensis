@@ -88,6 +88,8 @@ from forensis.services.analytics_service import (
 
 load_dotenv()
 
+from forensis.api_v1 import api as api_v1_blueprint
+
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -157,6 +159,7 @@ except Exception:
     DISPLAY_TIMEZONE = timezone.utc
 
 app = Flask(__name__)
+app.register_blueprint(api_v1_blueprint)
 app.config["SECRET_KEY"] = os.getenv("FORENSIS_SECRET_KEY", "change-me-in-production")
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 db_uri = os.getenv('FORENSIS_DB_URI', f'sqlite:///{DB_PATH}')
@@ -225,7 +228,7 @@ def inject_now():
 
 @app.after_request
 def set_secure_headers(response):
-    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net; font-src 'self' cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self'"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' cdn.jsdelivr.net unpkg.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' cdn.jsdelivr.net fonts.gstatic.com; img-src 'self' data:; connect-src 'self'"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     return response
@@ -653,7 +656,17 @@ def setup_mfa():
 
 @app.route("/")
 def index():
+    """Serve the Vue SPA for authenticated users, redirect to login otherwise."""
+    if current_user.is_authenticated:
+        return app.send_static_file("index.html")
     return redirect(url_for("login"))
+
+@app.route("/app")
+@app.route("/app/<path:subpath>")
+@login_required
+def spa_app(subpath=""):
+    """Vue SPA entry — all frontend routes served here."""
+    return app.send_static_file("index.html")
 
 @app.route("/dashboard")
 @login_required
