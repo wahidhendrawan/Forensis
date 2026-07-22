@@ -1,0 +1,79 @@
+name: E2E Smoke Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app.py"
+      - "forensis/**"
+      - "requirements.txt"
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - ".github/workflows/e2e-smoke.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "app.py"
+      - "forensis/**"
+      - "requirements.txt"
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - ".github/workflows/e2e-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Docker Compose smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare environment
+        run: |
+          if [ ! -f .env ]; then
+            cat > .env <<'EOF'
+          FORENSIS_POSTGRES_DB=forensis
+          FORENSIS_POSTGRES_USER=forensis
+          FORENSIS_POSTGRES_PASSWORD=ci-smoke-password
+          FORENSIS_SECRET_KEY=ci-smoke-secret
+          FORENSIS_DB_URI=postgresql+psycopg://forensis:ci-smoke-password@postgres:5432/forensis
+          EOF
+          fi
+          mkdir -p uploads instance
+
+      - name: Build and start core services
+        run: docker compose up -d --build postgres redis forensis
+
+      - name: Wait for backend
+        run: |
+          for i in $(seq 1 120); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/ || echo "000")
+            if [ "$code" = "200" ] || [ "$code" = "302" ]; then
+              echo "Forensis ready after ${i}s (HTTP $code)"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::Forensis did not respond within 360s"
+          docker compose logs forensis | tail -100
+          exit 1
+
+      - name: Smoke check - login page loads
+        run: |
+          echo "=== Login page ==="
+          curl -fsSL http://localhost:5000/login | grep -qE "(login|Login|password|Password)" && echo "OK: login page present"
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs forensis | tail -100
+          docker compose logs postgres | tail -30
+
+      - name: Teardown
+        if: always()
+        run: docker compose down -v
