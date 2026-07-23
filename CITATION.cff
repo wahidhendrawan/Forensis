@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: Hendrawan
+    given-names: Wahid
+title: "Forensis"
+version: "1.0.0"
+date-released: "2026-07-23"
+url: "https://github.com/wahidhendrawan/Forensis"
+license: GPL-3.0
