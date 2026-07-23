@@ -1,11 +1,16 @@
 [![CI](https://github.com/wahidhendrawan/Forensis/actions/workflows/ci.yml/badge.svg)](https://github.com/wahidhendrawan/Forensis/actions/workflows/ci.yml)
 
-# Forensis
+# Forensis 🔍
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL-3.0-blue.svg)](https://github.com/wahidhendrawan/Forensis/blob/main/LICENSE)
 [![Release](https://img.shields.io/badge/release-v1.0.0-green.svg)](https://github.com/wahidhendrawan/Forensis/releases)
 [![CI](https://github.com/wahidhendrawan/Forensis/actions/workflows/ci.yml/badge.svg)](https://github.com/wahidhendrawan/Forensis/actions)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![Docker](https://img.shields.io/badge/docker-compose%20ready-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
+[![CodeQL](https://github.com/wahidhendrawan/Forensis/actions/workflows/codeql.yml/badge.svg)](https://github.com/wahidhendrawan/Forensis/actions/workflows/codeql.yml)
 [![Pages](https://img.shields.io/badge/docs-🌐-orange.svg)](https://wahidhendrawan.github.io/Forensis/)
+[![Last Commit](https://img.shields.io/github/last-commit/wahidhendrawan/Forensis)](https://github.com/wahidhendrawan/Forensis/commits/main)
+[![GitHub stars](https://img.shields.io/github/stars/wahidhendrawan/Forensis?style=social)](https://github.com/wahidhendrawan/Forensis/stargazers)
 
 Forensis is an open-source web platform for threat analysis and digital forensics operations.
 It provides a unified workflow for log analysis, network packet inspection, memory triage,
@@ -392,6 +397,42 @@ Forensis/
 ├── docker-compose.yml
 └── requirements.txt
 ```
+
+## Velociraptor Integration (Planned)
+
+Forensis will support remote forensic acquisition via [Velociraptor](https://docs.velociraptor.app/):
+
+- **Artifact collection**: Browse and collect Velociraptor artifacts directly from the Forensis UI.
+- **Automated hunts**: Schedule recurring memory/log/network collection jobs from Velociraptor agents.
+- **Evidence ingestion**: Ingest `.vql` results as Forensis artifacts, triggering the full detection pipeline.
+- **API bridge**: Configure Velociraptor API URL + credentials in Forensis admin panel.
+
+```env
+# Planned — not yet active
+# FORENSIS_VELOCIRAPTOR_URL=https://velociraptor.internal:8000
+# FORENSIS_VELOCIRAPTOR_CLIENT_ID=forensis
+# FORENSIS_VELOCIRAPTOR_CLIENT_SECRET=
+```
+
+## GRR Rapid Response (Planned)
+
+[GRR](https://github.com/google/grr) integration for live remote forensic investigation:
+
+- Agent listing and live flow execution from within Forensis.
+- GRR hunt results ingested as structured timeline events.
+- Cross-reference GRR findings with Sigma/YARA correlation engine.
+
+## 📸 Screenshots
+
+| Screen | Description |
+|--------|-------------|
+| Dashboard | Overview of active cases, job queue, and detection summary |
+| Log Analyzer | Log parsing results with Sigma matches, threat scores, and enrichment |
+| Network Analyzer | PCAP flow analysis with highlighted suspicious communication |
+| Memory Triage | Memory dump analysis with YARA detection and indicator extraction |
+| History | Past analysis sessions with export and review controls |
+
+---
 
 ## Security Notes
 - Change default admin credentials immediately.
