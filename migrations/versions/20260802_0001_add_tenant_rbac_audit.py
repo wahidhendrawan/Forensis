@@ -44,7 +44,7 @@ def _add_tenant_column(table_name: str) -> None:
 def upgrade() -> None:
     # User identity and authorization fields. `role` remains during transition
     # so current templates and local-login flows stay compatible.
-    with op.batch_alter_table("user") as batch:
+    with op.batch_alter_table("users") as batch:
         batch.add_column(sa.Column("tenant_id", sa.String(length=64), nullable=True))
         batch.add_column(sa.Column("roles", sa.JSON(), nullable=True))
         batch.add_column(sa.Column("email", sa.String(length=255), nullable=True))
@@ -52,13 +52,13 @@ def upgrade() -> None:
         batch.add_column(sa.Column("oidc_issuer", sa.String(length=512), nullable=True))
         batch.add_column(sa.Column("oidc_subject", sa.String(length=255), nullable=True))
 
-    op.execute(sa.text("UPDATE user SET tenant_id = 'default' WHERE tenant_id IS NULL"))
-    op.execute(sa.text("UPDATE user SET auth_provider = 'local' WHERE auth_provider IS NULL"))
+    op.execute(sa.text("UPDATE users SET tenant_id = 'default' WHERE tenant_id IS NULL"))
+    op.execute(sa.text("UPDATE users SET auth_provider = 'local' WHERE auth_provider IS NULL"))
     # JSON is stored as text on SQLite. An empty array deliberately lets the
     # model fall back to the legacy `role` value until a user is edited/logs in.
-    op.execute(sa.text("UPDATE user SET roles = '[]' WHERE roles IS NULL"))
+    op.execute(sa.text("UPDATE users SET roles = '[]' WHERE roles IS NULL"))
 
-    with op.batch_alter_table("user") as batch:
+    with op.batch_alter_table("users") as batch:
         batch.alter_column("tenant_id", existing_type=sa.String(length=64), nullable=False, server_default="default")
         batch.alter_column("roles", existing_type=sa.JSON(), nullable=False, server_default="[]")
         batch.alter_column("auth_provider", existing_type=sa.String(length=32), nullable=False, server_default="local")
@@ -106,7 +106,7 @@ def downgrade() -> None:
             batch.drop_index(f"ix_{table_name}_tenant_id")
             batch.drop_column("tenant_id")
 
-    with op.batch_alter_table("user") as batch:
+    with op.batch_alter_table("users") as batch:
         batch.drop_constraint("uq_user_oidc_identity", type_="unique")
         batch.drop_index("ix_user_tenant_username")
         batch.drop_index("ix_user_tenant_id")

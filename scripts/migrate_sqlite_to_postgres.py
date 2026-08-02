@@ -15,7 +15,7 @@ from sqlalchemy import MetaData, Table, create_engine, delete, insert, select
 
 TABLE_ORDER = [
     "group",
-    "user",
+    "users",
     "system_setting",
     "analysis_history",
     "dfir_case",

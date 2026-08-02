@@ -47,7 +47,7 @@ def main() -> int:
         has_version = "alembic_version" in table_names
         managed_core = {
             "group",
-            "user",
+            "users",
             "analysis_history",
             "system_setting",
             "dfir_case",
