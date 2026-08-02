@@ -62,8 +62,8 @@ def upgrade() -> None:
         batch.alter_column("tenant_id", existing_type=sa.String(length=64), nullable=False, server_default="default")
         batch.alter_column("roles", existing_type=sa.JSON(), nullable=False, server_default="[]")
         batch.alter_column("auth_provider", existing_type=sa.String(length=32), nullable=False, server_default="local")
-        batch.create_index("ix_user_tenant_id", ["tenant_id"])
-        batch.create_index("ix_user_tenant_username", ["tenant_id", "username"])
+        batch.create_index("ix_users_tenant_id", ["tenant_id"])
+        batch.create_index("ix_users_tenant_username", ["tenant_id", "username"])
         batch.create_unique_constraint("uq_user_oidc_identity", ["oidc_issuer", "oidc_subject"])
 
     for table_name in TENANT_TABLES:
@@ -108,8 +108,8 @@ def downgrade() -> None:
 
     with op.batch_alter_table("users") as batch:
         batch.drop_constraint("uq_user_oidc_identity", type_="unique")
-        batch.drop_index("ix_user_tenant_username")
-        batch.drop_index("ix_user_tenant_id")
+        batch.drop_index("ix_users_tenant_username")
+        batch.drop_index("ix_users_tenant_id")
         batch.drop_column("oidc_subject")
         batch.drop_column("oidc_issuer")
         batch.drop_column("auth_provider")
