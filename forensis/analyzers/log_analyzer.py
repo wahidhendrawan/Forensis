@@ -3,7 +3,7 @@ import csv
 import json
 import io
 from collections import Counter, defaultdict
-from urllib.parse import unquote
+from urllib.parse import unquote_plus
 
 APACHE_REGEX = re.compile(
     r'(?P<ip>\S+) \S+ \S+ \[(?P<time>[^\]]+)\] "(?P<method>\S+)\s(?P<path>\S+)[^"]*" (?P<status>\d{3}) (?P<size>\S+)'
@@ -193,7 +193,7 @@ def _event_text(evt: dict) -> str:
     ]
     raw_text = " ".join(str(p) for p in parts if p is not None).lower()
     try:
-        decoded = unquote(raw_text)
+        decoded = unquote_plus(raw_text)
     except Exception:
         decoded = raw_text
     if decoded == raw_text:
