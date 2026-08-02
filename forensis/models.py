@@ -89,7 +89,7 @@ class User(UserMixin, db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("oidc_issuer", "oidc_subject", name="uq_user_oidc_identity"),
-        db.Index("ix_user_tenant_username", "tenant_id", "username"),
+        db.Index("ix_users_tenant_username", "tenant_id", "username"),
     )
 
     group = db.relationship("Group", backref="users")
