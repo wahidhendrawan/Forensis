@@ -9,6 +9,7 @@ from forensis.models import (
     AnalysisJob,
     Artifact,
     Case,
+    DEFAULT_TENANT_ID,
     Finding,
     JOB_STAGES,
     JOB_STATES,
@@ -42,11 +43,12 @@ def _build_case_key(prefix: str = "CASE") -> str:
     return f"{prefix}-{now}-{suffix}"
 
 
-def get_or_create_active_case(user_id: int, analysis_type: str, filename: str = "") -> Case:
+def get_or_create_active_case(user_id: int, analysis_type: str, filename: str = "", tenant_id: Optional[str] = None) -> Case:
+    tenant_id = tenant_id or DEFAULT_TENANT_ID
     day_tag = datetime.utcnow().strftime("%Y-%m-%d")
     title = f"Auto {str(analysis_type or '').upper()} Investigation {day_tag}"
     existing = (
-        Case.query.filter_by(owner_user_id=user_id, status="open")
+        Case.query.filter_by(owner_user_id=user_id, status="open", tenant_id=tenant_id)
         .filter(Case.title == title)
         .order_by(Case.id.desc())
         .first()
@@ -56,6 +58,7 @@ def get_or_create_active_case(user_id: int, analysis_type: str, filename: str = 
 
     case = Case(
         case_key=_build_case_key(),
+        tenant_id=tenant_id,
         title=title,
         description=f"Auto-created by artifact submission ({filename or 'manual input'}).",
         status="open",
@@ -79,6 +82,7 @@ def register_artifact(
     mime_type: Optional[str] = None,
     storage_backend: str = "local",
     metadata: Optional[Dict] = None,
+    tenant_id: Optional[str] = None,
 ) -> Artifact:
     size_bytes = None
     sha256 = None
@@ -99,7 +103,15 @@ def register_artifact(
         except OSError:
             sha256 = None
 
+    resolved_tenant_id = tenant_id
+    if not resolved_tenant_id and case_id:
+        case = db.session.get(Case, int(case_id))
+        if case:
+            resolved_tenant_id = case.tenant_id
+    resolved_tenant_id = resolved_tenant_id or DEFAULT_TENANT_ID
+
     artifact = Artifact(
+        tenant_id=resolved_tenant_id,
         case_id=case_id,
         uploaded_by_user_id=uploaded_by_user_id,
         artifact_type=artifact_type,
@@ -126,12 +138,24 @@ def create_analysis_job(
     state: str = "queued",
     stage: str = "queued",
     progress: int = 0,
+    tenant_id: Optional[str] = None,
 ) -> AnalysisJob:
+    resolved_tenant_id = tenant_id or DEFAULT_TENANT_ID
+    if case_id:
+        case = db.session.get(Case, int(case_id))
+        if case:
+            resolved_tenant_id = case.tenant_id
+    elif artifact_id:
+        artifact = db.session.get(Artifact, int(artifact_id))
+        if artifact:
+            resolved_tenant_id = artifact.tenant_id
+
     if state not in JOB_STATES:
         state = "queued"
     if stage not in JOB_STAGES:
         stage = "queued"
     job = AnalysisJob(
+        tenant_id=resolved_tenant_id,
         case_id=case_id,
         artifact_id=artifact_id,
         submitted_by_user_id=submitted_by_user_id,
@@ -214,6 +238,7 @@ def persist_dfir_outputs(job_id: int, results: Dict, sigma_matches=None):
     TimelineEvent.query.filter_by(analysis_job_id=job.id).delete(synchronize_session=False)
 
     case_id = job.case_id
+    tenant_id = job.tenant_id or DEFAULT_TENANT_ID
     source_type = str(job.job_type or "generic")
     findings_written = 0
     rule_matches_written = 0
@@ -224,6 +249,7 @@ def persist_dfir_outputs(job_id: int, results: Dict, sigma_matches=None):
         if not isinstance(anomaly, dict):
             continue
         finding = Finding(
+            tenant_id=tenant_id,
             case_id=case_id,
             analysis_job_id=job.id,
             source_type=source_type,
@@ -244,6 +270,7 @@ def persist_dfir_outputs(job_id: int, results: Dict, sigma_matches=None):
         if not isinstance(match, dict):
             continue
         rm = RuleMatch(
+            tenant_id=tenant_id,
             case_id=case_id,
             analysis_job_id=job.id,
             rule_engine="sigma",
@@ -259,6 +286,7 @@ def persist_dfir_outputs(job_id: int, results: Dict, sigma_matches=None):
     summary = (results or {}).get("summary") or {}
     title = f"{source_type.upper()} analysis {str(job.state).upper()}".strip()
     timeline = TimelineEvent(
+        tenant_id=tenant_id,
         case_id=case_id,
         analysis_job_id=job.id,
         event_type=f"{source_type}.analysis.complete",

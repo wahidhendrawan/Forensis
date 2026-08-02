@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, Optional
 
 try:
     import requests
@@ -12,7 +11,6 @@ except ImportError:
     requests = None  # type: ignore
 
 from forensis.models import AnalysisHistory
-
 
 _CLICKHOUSE_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9_]")
 CLICKHOUSE_URL = (os.getenv("FORENSIS_CLICKHOUSE_URL", "") or "").strip()
@@ -23,122 +21,81 @@ CLICKHOUSE_PASSWORD = (os.getenv("FORENSIS_CLICKHOUSE_PASSWORD", "") or "").stri
 
 
 def _auth_tuple():
-    if CLICKHOUSE_USERNAME or CLICKHOUSE_PASSWORD:
-        return (CLICKHOUSE_USERNAME, CLICKHOUSE_PASSWORD)
-    return None
+    return (CLICKHOUSE_USERNAME, CLICKHOUSE_PASSWORD) if CLICKHOUSE_USERNAME or CLICKHOUSE_PASSWORD else None
 
 
 def _clickhouse_query(query: str) -> Dict[str, Any]:
     if not CLICKHOUSE_URL or requests is None:
         return {"ok": False, "items": []}
-
-    url = CLICKHOUSE_URL.rstrip("/") + "/"
-    sql = " ".join(query.strip().split())
     try:
-        resp = requests.post(
-            url,
+        response = requests.post(
+            CLICKHOUSE_URL.rstrip("/") + "/",
             timeout=5,
-            params={"query": sql},
+            params={"query": " ".join(query.strip().split())},
             auth=_auth_tuple(),
         )
-        if resp.status_code != 200:
-            return {"ok": False, "items": [], "error": f"status_{resp.status_code}"}
-        payload = resp.json()
+        if response.status_code != 200:
+            return {"ok": False, "items": [], "error": f"status_{response.status_code}"}
+        payload = response.json()
         return {"ok": True, "items": payload.get("data", []) if isinstance(payload, dict) else []}
     except Exception as exc:
         return {"ok": False, "items": [], "error": str(exc)}
 
 
-def clickhouse_overview(since_minutes: int = 1440) -> Dict[str, Any]:
+def _clickhouse_literal(value: str) -> str:
+    return str(value or "").replace("\\", "\\\\").replace("'", "\\'")
+
+
+def clickhouse_overview(since_minutes: int = 1440, tenant_id: Optional[str] = None) -> Dict[str, Any]:
     if not CLICKHOUSE_URL:
         return {"enabled": False, "backend": "clickhouse", "source_counts": [], "severity_counts": [], "timeline": []}
 
     minutes = max(5, int(since_minutes or 1440))
     table = f"{CLICKHOUSE_DB}.{CLICKHOUSE_TABLE}"
+    tenant_filter = f" AND tenant_id = '{_clickhouse_literal(tenant_id)}'" if tenant_id else ""
+    where = f"ingested_at >= now() - INTERVAL {minutes} MINUTE{tenant_filter}"
 
-    source_q = f"""
-    SELECT source_type, count() AS c
-    FROM {table}
-    WHERE ingested_at >= now() - INTERVAL {minutes} MINUTE
-    GROUP BY source_type
-    ORDER BY c DESC
-    FORMAT JSON
-    """
-
-    severity_q = f"""
-    SELECT severity, count() AS c
-    FROM {table}
-    WHERE ingested_at >= now() - INTERVAL {minutes} MINUTE
-    GROUP BY severity
-    ORDER BY c DESC
-    FORMAT JSON
-    """
-
-    timeline_q = f"""
-    SELECT toStartOfHour(ingested_at) AS hour_bucket, count() AS c
-    FROM {table}
-    WHERE ingested_at >= now() - INTERVAL {minutes} MINUTE
-    GROUP BY hour_bucket
-    ORDER BY hour_bucket ASC
-    FORMAT JSON
-    """
-
-    source = _clickhouse_query(source_q)
-    severity = _clickhouse_query(severity_q)
-    timeline = _clickhouse_query(timeline_q)
-
+    source = _clickhouse_query(f"SELECT source_type, count() AS c FROM {table} WHERE {where} GROUP BY source_type ORDER BY c DESC FORMAT JSON")
+    severity = _clickhouse_query(f"SELECT severity, count() AS c FROM {table} WHERE {where} GROUP BY severity ORDER BY c DESC FORMAT JSON")
+    timeline = _clickhouse_query(f"SELECT toStartOfHour(ingested_at) AS hour_bucket, count() AS c FROM {table} WHERE {where} GROUP BY hour_bucket ORDER BY hour_bucket ASC FORMAT JSON")
     return {
         "enabled": True,
         "backend": "clickhouse",
         "source_counts": source.get("items", []),
         "severity_counts": severity.get("items", []),
         "timeline": timeline.get("items", []),
-        "errors": [
-            e
-            for e in [source.get("error"), severity.get("error"), timeline.get("error")]
-            if e
-        ],
+        "errors": [error for error in (source.get("error"), severity.get("error"), timeline.get("error")) if error],
     }
 
 
 def history_overview_fallback(current_user, since_minutes: int = 1440) -> Dict[str, Any]:
-    minutes = max(5, int(since_minutes or 1440))
-    cutoff = datetime.utcnow() - timedelta(minutes=minutes)
-
-    q = AnalysisHistory.query.filter(AnalysisHistory.timestamp >= cutoff).order_by(AnalysisHistory.timestamp.desc())
-    if getattr(current_user, "role", "") != "admin":
-        q = q.filter_by(user_id=current_user.id)
+    cutoff = datetime.utcnow() - timedelta(minutes=max(5, int(since_minutes or 1440)))
+    query = AnalysisHistory.query.filter(AnalysisHistory.timestamp >= cutoff)
+    if not current_user.has_role("super_admin"):
+        query = query.filter(AnalysisHistory.tenant_id == current_user.tenant_id)
+    if not current_user.has_role("admin", "super_admin"):
+        query = query.filter(AnalysisHistory.user_id == current_user.id)
 
     source_counts: Dict[str, int] = {}
     severity_counts: Dict[str, int] = {}
     timeline_counts: Dict[str, int] = {}
-
-    for rec in q.limit(300).all():
-        source_key = str(rec.type or "unknown")
+    for record in query.order_by(AnalysisHistory.timestamp.desc()).limit(300).all():
+        source_key = str(record.type or "unknown")
         source_counts[source_key] = source_counts.get(source_key, 0) + 1
-
-        ts = rec.timestamp
-        if ts:
-            hour_key = ts.replace(minute=0, second=0, microsecond=0).isoformat()
+        if record.timestamp:
+            hour_key = record.timestamp.replace(minute=0, second=0, microsecond=0).isoformat()
             timeline_counts[hour_key] = timeline_counts.get(hour_key, 0) + 1
-
-        data = rec.get_results() if hasattr(rec, "get_results") else {}
-        anomalies = data.get("anomalies") if isinstance(data, dict) else []
-        for item in anomalies or []:
-            if not isinstance(item, dict):
-                continue
-            sev = str(item.get("severity") or "unknown").lower()
-            severity_counts[sev] = severity_counts.get(sev, 0) + 1
-
-    source_items = [{"source_type": k, "c": v} for k, v in sorted(source_counts.items(), key=lambda x: x[1], reverse=True)]
-    severity_items = [{"severity": k, "c": v} for k, v in sorted(severity_counts.items(), key=lambda x: x[1], reverse=True)]
-    timeline_items = [{"hour_bucket": k, "c": timeline_counts[k]} for k in sorted(timeline_counts.keys())]
+        results = record.get_results()
+        for item in results.get("anomalies", []) if isinstance(results, dict) else []:
+            if isinstance(item, dict):
+                severity = str(item.get("severity") or "unknown").lower()
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
 
     return {
         "enabled": True,
         "backend": "history_fallback",
-        "source_counts": source_items,
-        "severity_counts": severity_items,
-        "timeline": timeline_items,
+        "source_counts": [{"source_type": key, "c": value} for key, value in sorted(source_counts.items(), key=lambda pair: pair[1], reverse=True)],
+        "severity_counts": [{"severity": key, "c": value} for key, value in sorted(severity_counts.items(), key=lambda pair: pair[1], reverse=True)],
+        "timeline": [{"hour_bucket": key, "c": timeline_counts[key]} for key in sorted(timeline_counts)],
         "errors": [],
     }
