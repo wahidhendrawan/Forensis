@@ -66,7 +66,7 @@ def _auth_tuple(username: str, password: str):
     return None
 
 
-def send_to_opensearch(events: List[Dict[str, Any]], source_type: str):
+def send_to_opensearch(events: List[Dict[str, Any]], source_type: str, tenant_id: str = "default"):
     if not OPENSEARCH_URL or not events:
         return
 
@@ -81,6 +81,7 @@ def send_to_opensearch(events: List[Dict[str, Any]], source_type: str):
             continue
         doc = {
             "source_type": source_type,
+            "tenant_id": tenant_id or "default",
             "ingested_at": now,
             **ev,
         }
@@ -101,9 +102,9 @@ def send_to_opensearch(events: List[Dict[str, Any]], source_type: str):
     )
 
 
-def send_to_elasticsearch(events: List[Dict[str, Any]], source_type: str):
+def send_to_elasticsearch(events: List[Dict[str, Any]], source_type: str, tenant_id: str = "default"):
     # Backward-compatible alias.
-    send_to_opensearch(events, source_type)
+    send_to_opensearch(events, source_type, tenant_id=tenant_id)
 
 
 def _parse_loki_labels(raw: str) -> Dict[str, str]:
@@ -121,12 +122,13 @@ def _parse_loki_labels(raw: str) -> Dict[str, str]:
     return labels
 
 
-def send_to_loki(events: List[Dict[str, Any]], source_type: str):
+def send_to_loki(events: List[Dict[str, Any]], source_type: str, tenant_id: str = "default"):
     if not LOKI_URL or not events:
         return
 
     base_labels = _parse_loki_labels(LOKI_LABELS)
     base_labels.setdefault("source_type", source_type)
+    base_labels.setdefault("tenant_id", tenant_id or "default")
 
     values = []
     for ev in events:
@@ -184,6 +186,7 @@ def _ensure_clickhouse_schema():
         CREATE TABLE IF NOT EXISTS {db_name}.{table_name}
         (
             ingested_at DateTime,
+            tenant_id LowCardinality(String),
             source_type LowCardinality(String),
             source_ip String,
             destination_ip String,
@@ -193,13 +196,13 @@ def _ensure_clickhouse_schema():
             event_json String
         )
         ENGINE = MergeTree
-        ORDER BY (ingested_at, source_type)
+        ORDER BY (tenant_id, ingested_at, source_type)
         """
         _clickhouse_http_post(" ".join(create_table.split()))
         _CLICKHOUSE_READY = True
 
 
-def _event_to_clickhouse_row(source_type: str, event: Dict[str, Any]) -> Dict[str, Any]:
+def _event_to_clickhouse_row(source_type: str, event: Dict[str, Any], tenant_id: str = "default") -> Dict[str, Any]:
     source_ip = str(event.get("src_ip") or event.get("ip") or "")
     destination_ip = str(event.get("dst_ip") or event.get("host") or "")
     indicator = str(event.get("indicator") or "")
@@ -207,6 +210,7 @@ def _event_to_clickhouse_row(source_type: str, event: Dict[str, Any]) -> Dict[st
     message = str(event.get("message") or event.get("raw") or "")[:4000]
     return {
         "ingested_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "tenant_id": tenant_id or "default",
         "source_type": source_type,
         "source_ip": source_ip,
         "destination_ip": destination_ip,
@@ -217,7 +221,7 @@ def _event_to_clickhouse_row(source_type: str, event: Dict[str, Any]) -> Dict[st
     }
 
 
-def send_to_clickhouse(events: List[Dict[str, Any]], source_type: str):
+def send_to_clickhouse(events: List[Dict[str, Any]], source_type: str, tenant_id: str = "default"):
     if not CLICKHOUSE_URL or not events:
         return
 
@@ -230,7 +234,7 @@ def send_to_clickhouse(events: List[Dict[str, Any]], source_type: str):
     rows = []
     for event in events:
         if isinstance(event, dict):
-            rows.append(json.dumps(_event_to_clickhouse_row(source_type, event), default=str))
+            rows.append(json.dumps(_event_to_clickhouse_row(source_type, event, tenant_id=tenant_id), default=str))
 
     if not rows:
         return
@@ -239,10 +243,11 @@ def send_to_clickhouse(events: List[Dict[str, Any]], source_type: str):
     _clickhouse_http_post(query=query, data=payload)
 
 
-def ship_events(events: List[Dict[str, Any]], source_type: str):
-    # Helper to send events to configured sinks.
+def ship_events(events: List[Dict[str, Any]], source_type: str, tenant_id: str = "default"):
+    """Send events to configured sinks, tagged with the actor's tenant."""
     if not events:
         return
-    send_to_opensearch(events, source_type)
-    send_to_loki(events, source_type)
-    send_to_clickhouse(events, source_type)
+    tenant_id = tenant_id or "default"
+    send_to_opensearch(events, source_type, tenant_id=tenant_id)
+    send_to_loki(events, source_type, tenant_id=tenant_id)
+    send_to_clickhouse(events, source_type, tenant_id=tenant_id)

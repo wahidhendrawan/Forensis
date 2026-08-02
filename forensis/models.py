@@ -4,7 +4,16 @@ import json
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
 
+
 db = SQLAlchemy()
+
+DEFAULT_TENANT_ID = "default"
+ROLE_ALIASES = {
+    "analyst": "editor",
+    "administrator": "admin",
+    "tenant_admin": "admin",
+}
+VALID_STANDARD_ROLES = {"viewer", "editor", "admin", "super_admin"}
 
 JOB_STATES = {"queued", "running", "succeeded", "failed", "partial"}
 JOB_STAGES = {
@@ -19,6 +28,27 @@ JOB_STAGES = {
     "complete",
     "failed",
 }
+
+
+def normalize_roles(value, fallback="viewer"):
+    """Return a unique, supported role list while accepting legacy role values."""
+    if isinstance(value, str):
+        values = [part.strip() for part in value.replace(",", " ").split()]
+    elif isinstance(value, (list, tuple, set)):
+        values = value
+    else:
+        values = []
+
+    roles = []
+    for item in values:
+        role = ROLE_ALIASES.get(str(item or "").strip().lower(), str(item or "").strip().lower())
+        if role in VALID_STANDARD_ROLES and role not in roles:
+            roles.append(role)
+
+    if roles:
+        return roles
+    fallback_role = ROLE_ALIASES.get(str(fallback or "viewer").lower(), str(fallback or "viewer").lower())
+    return [fallback_role if fallback_role in VALID_STANDARD_ROLES else "viewer"]
 
 
 class JsonTextMixin:
@@ -43,12 +73,42 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
+    # Retained during migration for compatibility with existing templates and data.
     role = db.Column(db.String(50), nullable=False, default="analyst")
+    roles = db.Column(db.JSON, nullable=False, default=list, server_default=db.text("'[]'"))
+    tenant_id = db.Column(db.String(64), nullable=False, default=DEFAULT_TENANT_ID, server_default=DEFAULT_TENANT_ID, index=True)
+    email = db.Column(db.String(255), nullable=True)
+    auth_provider = db.Column(db.String(32), nullable=False, default="local", server_default="local")
+    oidc_issuer = db.Column(db.String(512), nullable=True)
+    oidc_subject = db.Column(db.String(255), nullable=True)
     group_id = db.Column(db.Integer, db.ForeignKey("group.id"), nullable=True)
     mfa_secret = db.Column(db.String(32), nullable=True)
     mfa_enabled = db.Column(db.Boolean, default=False)
 
+    __table_args__ = (
+        db.UniqueConstraint("oidc_issuer", "oidc_subject", name="uq_user_oidc_identity"),
+        db.Index("ix_user_tenant_username", "tenant_id", "username"),
+    )
+
     group = db.relationship("Group", backref="users")
+
+    def get_roles(self):
+        return normalize_roles(self.roles, fallback=self.role)
+
+    def has_role(self, *required_roles):
+        current_roles = set(self.get_roles())
+        if "super_admin" in current_roles:
+            return True
+        normalized_required = {
+            ROLE_ALIASES.get(str(role or "").lower(), str(role or "").lower())
+            for role in required_roles
+        }
+        return bool(current_roles & normalized_required)
+
+    def set_roles(self, roles):
+        self.roles = normalize_roles(roles, fallback=self.role)
+        # Keep legacy templates and checks correct until all callers use roles.
+        self.role = "admin" if self.has_role("admin", "super_admin") else "analyst"
 
     def __repr__(self):
         return f"<User {self.username}>"
@@ -66,6 +126,7 @@ class AnalysisHistory(JsonTextMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     type = db.Column(db.String(50), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    tenant_id = db.Column(db.String(64), nullable=False, default=DEFAULT_TENANT_ID, server_default=DEFAULT_TENANT_ID, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
     results_json = db.Column(db.Text, nullable=True)
     filename = db.Column(db.String(255), nullable=True)
@@ -94,6 +155,7 @@ class Case(JsonTextMixin, db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     case_key = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    tenant_id = db.Column(db.String(64), nullable=False, default=DEFAULT_TENANT_ID, server_default=DEFAULT_TENANT_ID, index=True)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(32), nullable=False, default="open", index=True)
@@ -120,6 +182,7 @@ class Artifact(JsonTextMixin, db.Model):
     __tablename__ = "artifact"
 
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.String(64), nullable=False, default=DEFAULT_TENANT_ID, server_default=DEFAULT_TENANT_ID, index=True)
     case_id = db.Column(db.Integer, db.ForeignKey("dfir_case.id"), nullable=True, index=True)
     uploaded_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
     artifact_type = db.Column(db.String(32), nullable=False, index=True)
@@ -146,6 +209,7 @@ class AnalysisJob(JsonTextMixin, db.Model):
     __tablename__ = "analysis_job"
 
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.String(64), nullable=False, default=DEFAULT_TENANT_ID, server_default=DEFAULT_TENANT_ID, index=True)
     case_id = db.Column(db.Integer, db.ForeignKey("dfir_case.id"), nullable=True, index=True)
     artifact_id = db.Column(db.Integer, db.ForeignKey("artifact.id"), nullable=True, index=True)
     history_id = db.Column(db.Integer, db.ForeignKey("analysis_history.id"), nullable=True, index=True)
@@ -195,6 +259,7 @@ class Finding(JsonTextMixin, db.Model):
     __tablename__ = "finding"
 
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.String(64), nullable=False, default=DEFAULT_TENANT_ID, server_default=DEFAULT_TENANT_ID, index=True)
     case_id = db.Column(db.Integer, db.ForeignKey("dfir_case.id"), nullable=True, index=True)
     analysis_job_id = db.Column(db.Integer, db.ForeignKey("analysis_job.id"), nullable=True, index=True)
     source_type = db.Column(db.String(32), nullable=False, index=True)
@@ -222,6 +287,7 @@ class RuleMatch(JsonTextMixin, db.Model):
     __tablename__ = "rule_match"
 
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.String(64), nullable=False, default=DEFAULT_TENANT_ID, server_default=DEFAULT_TENANT_ID, index=True)
     case_id = db.Column(db.Integer, db.ForeignKey("dfir_case.id"), nullable=True, index=True)
     analysis_job_id = db.Column(db.Integer, db.ForeignKey("analysis_job.id"), nullable=True, index=True)
     finding_id = db.Column(db.Integer, db.ForeignKey("finding.id"), nullable=True, index=True)
@@ -248,6 +314,7 @@ class TimelineEvent(JsonTextMixin, db.Model):
     __tablename__ = "timeline_event"
 
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.String(64), nullable=False, default=DEFAULT_TENANT_ID, server_default=DEFAULT_TENANT_ID, index=True)
     case_id = db.Column(db.Integer, db.ForeignKey("dfir_case.id"), nullable=True, index=True)
     analysis_job_id = db.Column(db.Integer, db.ForeignKey("analysis_job.id"), nullable=True, index=True)
     event_type = db.Column(db.String(64), nullable=False, index=True)
@@ -265,3 +332,48 @@ class TimelineEvent(JsonTextMixin, db.Model):
 
     def set_details(self, value):
         self.details_json = self._dumps(value)
+
+
+class AuditLog(db.Model):
+    __tablename__ = "audit_log"
+
+    id = db.Column(db.Integer, primary_key=True)
+    ts = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, server_default=db.text("CURRENT_TIMESTAMP"), index=True)
+    actor_sub = db.Column(db.String(255), nullable=False)
+    actor_email = db.Column(db.String(255), nullable=True)
+    tenant_id = db.Column(db.String(64), nullable=False, default=DEFAULT_TENANT_ID, server_default=DEFAULT_TENANT_ID, index=True)
+    action = db.Column(db.String(100), nullable=False)
+    resource_type = db.Column(db.String(50), nullable=True)
+    resource_id = db.Column(db.String(255), nullable=True)
+    status = db.Column(db.String(20), nullable=False)
+    ip_address = db.Column(db.String(45), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column(db.JSON, nullable=False, default=dict, server_default=db.text("'{}'"))
+
+    __table_args__ = (
+        db.Index("idx_audit_tenant_ts", "tenant_id", "ts"),
+        db.Index("idx_audit_actor_ts", "actor_sub", "ts"),
+        db.Index("idx_audit_action_ts", "action", "ts"),
+    )
+
+    def get_metadata(self):
+        return self.metadata_json or {}
+
+    def set_metadata(self, value):
+        self.metadata_json = value if isinstance(value, dict) else {}
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "ts": self.ts.isoformat() if self.ts else None,
+            "actor_sub": self.actor_sub,
+            "actor_email": self.actor_email,
+            "tenant_id": self.tenant_id,
+            "action": self.action,
+            "resource_type": self.resource_type,
+            "resource_id": self.resource_id,
+            "status": self.status,
+            "ip_address": self.ip_address,
+            "user_agent": self.user_agent,
+            "metadata": self.get_metadata(),
+        }

@@ -89,6 +89,7 @@ from forensis.services.analytics_service import (
 load_dotenv()
 
 from forensis.api_v1 import api as api_v1_blueprint
+from forensis.audit import audit_log
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
@@ -280,38 +281,53 @@ def _ensure_runtime_indexes():
         db.session.rollback()
 
 
-def _purge_analysis_data():
-    bind = db.session.get_bind()
-    dialect = (getattr(bind, "dialect", None).name if bind else "").lower()
+def _purge_analysis_data(tenant_id=None):
+    """Purge analysis records globally only for super-admin initiated resets."""
+    if tenant_id is None:
+        bind = db.session.get_bind()
+        dialect = (getattr(bind, "dialect", None).name if bind else "").lower()
+        if dialect == "postgresql":
+            table_list = ", ".join(ANALYSIS_PURGE_TABLES)
+            db.session.execute(text(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE"))
+            db.session.commit()
+            return
 
-    if dialect == "postgresql":
-        table_list = ", ".join(ANALYSIS_PURGE_TABLES)
-        db.session.execute(text(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE"))
-        db.session.commit()
-        return
-
-    RuleMatch.query.delete(synchronize_session=False)
-    Finding.query.delete(synchronize_session=False)
-    TimelineEvent.query.delete(synchronize_session=False)
-    AnalysisJob.query.delete(synchronize_session=False)
-    AnalysisHistory.query.delete(synchronize_session=False)
+    for model in (RuleMatch, Finding, TimelineEvent, AnalysisJob, AnalysisHistory):
+        query = model.query
+        if tenant_id is not None:
+            query = query.filter(model.tenant_id == tenant_id)
+        query.delete(synchronize_session=False)
     db.session.commit()
 
 
-def _delete_history_dependencies(history_id: int):
-    jobs = AnalysisJob.query.filter_by(history_id=history_id).all()
+def _delete_history_dependencies(history_id: int, tenant_id=None):
+    jobs_query = AnalysisJob.query.filter(AnalysisJob.history_id == history_id)
+    if tenant_id is not None:
+        jobs_query = jobs_query.filter(AnalysisJob.tenant_id == tenant_id)
+    jobs = jobs_query.all()
     if not jobs:
         return
 
-    job_ids = [j.id for j in jobs]
-    finding_ids = [row[0] for row in db.session.query(Finding.id).filter(Finding.analysis_job_id.in_(job_ids)).all()]
+    job_ids = [job.id for job in jobs]
+    findings_query = db.session.query(Finding.id).filter(Finding.analysis_job_id.in_(job_ids))
+    if tenant_id is not None:
+        findings_query = findings_query.filter(Finding.tenant_id == tenant_id)
+    finding_ids = [row[0] for row in findings_query.all()]
 
-    RuleMatch.query.filter(RuleMatch.analysis_job_id.in_(job_ids)).delete(synchronize_session=False)
+    for model in (RuleMatch, Finding, TimelineEvent):
+        query = model.query.filter(model.analysis_job_id.in_(job_ids))
+        if tenant_id is not None:
+            query = query.filter(model.tenant_id == tenant_id)
+        query.delete(synchronize_session=False)
     if finding_ids:
-        RuleMatch.query.filter(RuleMatch.finding_id.in_(finding_ids)).delete(synchronize_session=False)
-    Finding.query.filter(Finding.analysis_job_id.in_(job_ids)).delete(synchronize_session=False)
-    TimelineEvent.query.filter(TimelineEvent.analysis_job_id.in_(job_ids)).delete(synchronize_session=False)
-    AnalysisJob.query.filter(AnalysisJob.id.in_(job_ids)).delete(synchronize_session=False)
+        rule_query = RuleMatch.query.filter(RuleMatch.finding_id.in_(finding_ids))
+        if tenant_id is not None:
+            rule_query = rule_query.filter(RuleMatch.tenant_id == tenant_id)
+        rule_query.delete(synchronize_session=False)
+    job_query = AnalysisJob.query.filter(AnalysisJob.id.in_(job_ids))
+    if tenant_id is not None:
+        job_query = job_query.filter(AnalysisJob.tenant_id == tenant_id)
+    job_query.delete(synchronize_session=False)
 
 
 def _get_stored_otx_api_key() -> str:
@@ -574,7 +590,7 @@ def _read_memory_input(path: str, filename: str) -> str:
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated or current_user.role != 'admin':
+        if not current_user.is_authenticated or not current_user.has_role("admin"):
             flash("Access denied: Admins only.", "danger")
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
@@ -593,31 +609,40 @@ def _safe_redirect(target, fallback="dashboard"):
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    if current_user.is_authenticated:
+        return _safe_redirect(request.args.get("next"))
+
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "").strip()
         otp = request.form.get("otp", "").strip()
         user = User.query.filter_by(username=username).first()
+
         if user and bcrypt.check_password_hash(user.password_hash, password):
             if user.mfa_enabled:
                 if not otp:
-                     return render_template("login.html", otp_required=True, username=username, password=password)
-                else:
-                    totp = pyotp.TOTP(user.mfa_secret)
-                    if not totp.verify(otp):
-                        flash("Invalid authentication code.", "danger")
-                        return render_template("login.html", otp_required=True, username=username, password=password)
+                    return render_template("login.html", otp_required=True, username=username)
+                totp = pyotp.TOTP(user.mfa_secret)
+                if not totp.verify(otp):
+                    audit_log("auth.login", "failed", actor_sub=username, metadata={"reason": "Invalid MFA code"})
+                    flash("Invalid authentication code.", "danger")
+                    return render_template("login.html", otp_required=True, username=username)
+
             login_user(user)
+            audit_log("auth.login", "succeeded", actor_sub=username, tenant_id=user.tenant_id)
             flash("Logged in successfully.", "success")
             return _safe_redirect(request.args.get("next"))
         else:
+            audit_log("auth.login", "failed", actor_sub=username, metadata={"reason": "Invalid credentials"})
             flash("Invalid credentials.", "danger")
             return redirect(url_for("login"))
+
     return render_template("login.html", otp_required=False)
 
 @app.route("/logout")
 @login_required
 def logout():
+    audit_log("auth.logout", "succeeded")
     logout_user()
     flash("You have been logged out.", "info")
     return redirect(url_for("login"))
@@ -674,11 +699,23 @@ def spa_app(subpath=""):
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    logs_count = AnalysisHistory.query.filter_by(type="logs").count()
-    network_count = AnalysisHistory.query.filter_by(type="network").count()
-    memory_count = AnalysisHistory.query.filter(AnalysisHistory.type.like("memory%")).count()
-    latest_log = AnalysisHistory.query.filter_by(type="logs").order_by(AnalysisHistory.timestamp.desc()).first()
-    latest_net = AnalysisHistory.query.filter_by(type="network").order_by(AnalysisHistory.timestamp.desc()).first()
+    query = AnalysisHistory.query
+    if not current_user.has_role("super_admin"):
+        query = query.filter(AnalysisHistory.tenant_id == current_user.tenant_id)
+
+    logs_count = query.filter_by(type="logs").count()
+    network_count = query.filter_by(type="network").count()
+    memory_count = query.filter(AnalysisHistory.type.like("memory%")).count()
+
+    latest_log_q = AnalysisHistory.query
+    latest_net_q = AnalysisHistory.query
+    if not current_user.has_role("super_admin"):
+        latest_log_q = latest_log_q.filter(AnalysisHistory.tenant_id == current_user.tenant_id)
+        latest_net_q = latest_net_q.filter(AnalysisHistory.tenant_id == current_user.tenant_id)
+
+    latest_log = latest_log_q.filter_by(type="logs").order_by(AnalysisHistory.timestamp.desc()).first()
+    latest_net = latest_net_q.filter_by(type="network").order_by(AnalysisHistory.timestamp.desc()).first()
+
     log_data = latest_log.get_results() if latest_log else {}
     net_data = latest_net.get_results() if latest_net else {}
     dashboard_data = {
@@ -697,7 +734,12 @@ def dashboard():
         "recent_alerts": [],
         "cross_source": {"findings": [], "count": 0, "severity_counts": {}},
     }
-    recent_analyses = AnalysisHistory.query.order_by(AnalysisHistory.timestamp.desc()).limit(40).all()
+
+    recent_analyses_q = AnalysisHistory.query
+    if not current_user.has_role("super_admin"):
+        recent_analyses_q = recent_analyses_q.filter(AnalysisHistory.tenant_id == current_user.tenant_id)
+    recent_analyses = recent_analyses_q.order_by(AnalysisHistory.timestamp.desc()).limit(40).all()
+
     alerts = []
     for a in recent_analyses:
         res = a.get_results()
@@ -719,9 +761,13 @@ def cheatsheets():
 @app.route("/users")
 @login_required
 def manage_users():
-    is_admin = current_user.role == "admin"
-    users = User.query.order_by(User.id.asc()).all() if is_admin else [current_user]
-    groups = Group.query.order_by(Group.name.asc()).all() if is_admin else []
+    is_admin = current_user.has_role("admin")
+    if is_admin:
+        users = User.query.filter(User.tenant_id == current_user.tenant_id).order_by(User.id.asc()).all()
+        groups = Group.query.order_by(Group.name.asc()).all()
+    else:
+        users = [current_user]
+        groups = []
     env_otx_key = os.getenv("FORENSIS_OTX_API_KEY", "").strip()
     stored_otx_key = _get_stored_otx_api_key() if is_admin else ""
     effective_otx_key = env_otx_key or stored_otx_key
@@ -818,9 +864,22 @@ def create_user():
         return redirect(url_for("manage_users"))
 
     hashed_pw = bcrypt.generate_password_hash(password).decode("utf-8")
-    new_user = User(username=username, password_hash=hashed_pw, role=role, group_id=group_id)
+    new_user = User(
+        username=username,
+        password_hash=hashed_pw,
+        tenant_id=current_user.tenant_id,
+        group_id=group_id,
+    )
+    new_user.set_roles([role])
     db.session.add(new_user)
     db.session.commit()
+    audit_log(
+        "user.create",
+        "succeeded",
+        resource_type="user",
+        resource_id=new_user.id,
+        metadata={"username": username, "roles": new_user.get_roles()},
+    )
     flash(f"User {username} added successfully.", "success")
     return redirect(url_for("manage_users"))
 
@@ -833,6 +892,11 @@ def update_user(user_id):
     user = db.session.get(User, user_id)
     if not user:
         flash("User not found.", "danger")
+        return redirect(url_for("manage_users"))
+
+    # Tenant scope: admins can only update users in their tenant
+    if not current_user.has_role("super_admin") and user.tenant_id != current_user.tenant_id:
+        flash("Access denied.", "danger")
         return redirect(url_for("manage_users"))
 
     username = request.form.get("username", user.username).strip()
@@ -863,11 +927,18 @@ def update_user(user_id):
         return redirect(url_for("manage_users"))
 
     user.username = username
-    user.role = role
+    user.set_roles([role])
     user.group_id = group_id
     if new_password:
         user.password_hash = bcrypt.generate_password_hash(new_password).decode("utf-8")
     db.session.commit()
+    audit_log(
+        "user.update",
+        "succeeded",
+        resource_type="user",
+        resource_id=user.id,
+        metadata={"username": user.username, "roles": user.get_roles()},
+    )
     flash(f"User {user.username} updated.", "success")
     return redirect(url_for("manage_users"))
 
@@ -897,12 +968,26 @@ def delete_user(user_id):
     if not user:
         flash("User not found.", "danger")
         return redirect(url_for("manage_users"))
+
+    # Tenant scope: admins can only delete users in their tenant
+    if not current_user.has_role("super_admin") and user.tenant_id != current_user.tenant_id:
+        flash("Access denied.", "danger")
+        return redirect(url_for("manage_users"))
+
     if user.username == "admin" or user.id == current_user.id:
         flash("Cannot delete default admin or yourself.", "danger")
     else:
+        username = user.username
         db.session.delete(user)
         db.session.commit()
-        flash(f"User {user.username} deleted.", "success")
+        audit_log(
+            "user.delete",
+            "succeeded",
+            resource_type="user",
+            resource_id=user_id,
+            metadata={"username": username},
+        )
+        flash(f"User {username} deleted.", "success")
     return redirect(url_for("manage_users"))
 
 @app.route("/manage_groups/create", methods=["POST"])
@@ -1010,8 +1095,19 @@ def sigma_sync():
         flash("No valid Sigma rule file imported from provided URLs.", "warning")
     return _safe_redirect(request.referrer)
 
+def _resolve_tenant_id(user_id, tenant_id=None):
+    """Resolve tenant_id for background tasks, preferring an explicit value."""
+    if tenant_id:
+        return tenant_id
+    if user_id:
+        user = db.session.get(User, int(user_id))
+        if user and user.tenant_id:
+            return user.tenant_id
+    return "default"
+
 @celery.task(name="app.process_logs_task")
-def process_logs_task(log_text, log_type, filename, user_id, job_id=None):
+def process_logs_task(log_text, log_type, filename, user_id, job_id=None, tenant_id=None):
+    tenant_id = _resolve_tenant_id(user_id, tenant_id)
     started = time.monotonic()
     if job_id:
         update_job_status(job_id, state="running", stage="parse", progress=10, mark_started=True)
@@ -1028,14 +1124,14 @@ def process_logs_task(log_text, log_type, filename, user_id, job_id=None):
             raw_blob=log_text,
         )
         events = results.get("events", [])
-        ship_events(events, "logs")
+        ship_events(events, "logs", tenant_id=tenant_id)
 
         run_async_sigma = bool(job_id) and ASYNC_SIGMA_POSTPROCESS
         results["sigma_status"] = "queued" if run_async_sigma else "ready"
         if run_async_sigma:
             results["sigma_matches"] = []
 
-        history = AnalysisHistory(type="logs", user_id=user_id, filename=filename)
+        history = AnalysisHistory(type="logs", user_id=user_id, tenant_id=tenant_id, filename=filename)
         history.set_results(results)
         db.session.add(history)
         db.session.commit()
@@ -1083,7 +1179,8 @@ def process_logs_task(log_text, log_type, filename, user_id, job_id=None):
         raise
 
 @celery.task(name="app.process_network_task")
-def process_network_task(path, filename, user_id, job_id=None):
+def process_network_task(path, filename, user_id, job_id=None, tenant_id=None):
+    tenant_id = _resolve_tenant_id(user_id, tenant_id)
     started = time.monotonic()
     if job_id:
         update_job_status(job_id, state="running", stage="parse", progress=10, mark_started=True)
@@ -1100,13 +1197,13 @@ def process_network_task(path, filename, user_id, job_id=None):
         )
         results = _compact_network(results)
         events = results.get("events", [])
-        ship_events(events, "network")
+        ship_events(events, "network", tenant_id=tenant_id)
         run_async_sigma = bool(job_id) and ASYNC_SIGMA_POSTPROCESS
         results["sigma_status"] = "queued" if run_async_sigma else "ready"
         if run_async_sigma:
             results["sigma_matches"] = []
 
-        history = AnalysisHistory(type="network", user_id=user_id, filename=filename)
+        history = AnalysisHistory(type="network", user_id=user_id, tenant_id=tenant_id, filename=filename)
         history.set_results(results)
         db.session.add(history)
         db.session.commit()
@@ -1157,7 +1254,8 @@ def process_network_task(path, filename, user_id, job_id=None):
         _safe_unlink(path)
 
 @celery.task(name="app.process_memory_task")
-def process_memory_task(path, stored_filename, input_name, user_id, job_id=None):
+def process_memory_task(path, stored_filename, input_name, user_id, job_id=None, tenant_id=None):
+    tenant_id = _resolve_tenant_id(user_id, tenant_id)
     started = time.monotonic()
     if job_id:
         update_job_status(job_id, state="running", stage="parse", progress=10, mark_started=True)
@@ -1183,14 +1281,14 @@ def process_memory_task(path, stored_filename, input_name, user_id, job_id=None)
             "parsed_output": parsed_output,
             "input_name": input_name,
         }
-        ship_events(events, "memory")
+        ship_events(events, "memory", tenant_id=tenant_id)
 
         run_async_sigma = bool(job_id) and ASYNC_SIGMA_POSTPROCESS
         results["sigma_status"] = "queued" if run_async_sigma else "ready"
         if run_async_sigma:
             results["sigma_matches"] = []
 
-        history = AnalysisHistory(type="memory_triage", user_id=user_id, filename=input_name)
+        history = AnalysisHistory(type="memory_triage", user_id=user_id, tenant_id=tenant_id, filename=input_name)
         history.set_results(results)
         db.session.add(history)
         db.session.commit()
@@ -1275,10 +1373,23 @@ def postprocess_sigma_task(history_id, analysis_type, job_id=None):
             update_job_status(job_id, state="failed", stage="failed", progress=100, error_message=str(exc), mark_finished=True)
         raise
 
+def _can_access_job(job) -> bool:
+    if not job:
+        return False
+    if current_user.has_role("super_admin"):
+        return True
+    if job.tenant_id != current_user.tenant_id:
+        return False
+    return current_user.has_role("admin") or job.submitted_by_user_id == current_user.id
+
+
 @app.route("/task/status/<task_id>")
 @login_required
 def task_status(task_id):
     job = get_job_by_task_id(task_id)
+    if job and not _can_access_job(job):
+        flash("Permission denied.", "danger")
+        return redirect(url_for("dashboard"))
     if job:
         if job.history_id and job.state in {"succeeded", "partial"}:
             if job.state == "partial":
@@ -1287,23 +1398,21 @@ def task_status(task_id):
         if job.state == "failed":
             flash(job.error_message or "An error occurred during analysis.", "danger")
             return redirect(url_for("dashboard"))
+        status = str(job.stage or job.state or "processing").replace("_", " ").title()
+        return render_template("loading.html", task_id=task_id, status=f"{status}...")
 
-    task = celery.AsyncResult(task_id)
-    if task.state == 'PENDING':
-        return render_template("loading.html", task_id=task_id, status="Pending...")
-    elif task.state != 'FAILURE':
-        if task.ready():
-            return redirect(url_for('view_history', id=task.result))
-        return render_template("loading.html", task_id=task_id, status="Processing...")
-    else:
-        flash("An error occurred during analysis.", "danger")
-        return redirect(url_for("dashboard"))
+    # Every user-visible analysis must have an AnalysisJob. Do not expose raw
+    # Celery state or results when a task ID is guessed or no longer registered.
+    flash("Analysis job not found.", "danger")
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/api/jobs/<task_id>/status")
 @login_required
 def api_job_status(task_id):
     job = get_job_by_task_id(task_id)
+    if job and not _can_access_job(job):
+        return jsonify({"error": "forbidden"}), 403
     if job:
         payload = job.as_status()
         payload["ready"] = bool(job.history_id) and job.state in {"succeeded", "partial"}
@@ -1311,29 +1420,7 @@ def api_job_status(task_id):
         payload["redirect_url"] = url_for("view_history", id=job.history_id) if payload["ready"] else None
         return jsonify(payload)
 
-    task = celery.AsyncResult(task_id)
-    payload = {
-        "task_id": task_id,
-        "state": str(task.state).lower(),
-        "stage": str(task.state).lower(),
-        "progress": 0,
-        "ready": False,
-        "failed": task.state == "FAILURE",
-        "redirect_url": None,
-        "error_message": "",
-    }
-    if task.state == "PENDING":
-        payload["progress"] = 5
-    elif task.state in {"STARTED", "RETRY"}:
-        payload["progress"] = 40
-    elif task.state == "SUCCESS":
-        payload["ready"] = True
-        payload["progress"] = 100
-        payload["redirect_url"] = url_for("view_history", id=task.result)
-    elif task.state == "FAILURE":
-        payload["progress"] = 100
-        payload["error_message"] = "Background task failed."
-    return jsonify(payload)
+    return jsonify({"error": "not_found"}), 404
 
 
 @app.route("/api/cases")
@@ -1341,8 +1428,10 @@ def api_job_status(task_id):
 def api_cases():
     limit = _env_int("FORENSIS_API_CASES_LIMIT", 100, min_value=1, max_value=500)
     query = Case.query.order_by(Case.updated_at.desc())
-    if current_user.role != "admin":
-        query = query.filter_by(owner_user_id=current_user.id)
+    if not current_user.has_role("super_admin"):
+        query = query.filter(Case.tenant_id == current_user.tenant_id)
+        if not current_user.has_role("admin"):
+            query = query.filter(Case.owner_user_id == current_user.id)
     cases = query.limit(limit).all()
     payload = []
     for c in cases:
@@ -1381,8 +1470,10 @@ def api_jobs():
     if case_id_raw.isdigit():
         query = query.filter_by(case_id=int(case_id_raw))
 
-    if current_user.role != "admin":
-        query = query.filter_by(submitted_by_user_id=current_user.id)
+    if not current_user.has_role("super_admin"):
+        query = query.filter(AnalysisJob.tenant_id == current_user.tenant_id)
+        if not current_user.has_role("admin"):
+            query = query.filter(AnalysisJob.submitted_by_user_id == current_user.id)
 
     items = [job.as_status() for job in query.limit(limit).all()]
     return jsonify({"items": items, "count": len(items)})
@@ -1394,11 +1485,15 @@ def api_job_detail(job_id):
     job = db.session.get(AnalysisJob, int(job_id))
     if not job:
         return jsonify({"error": "not_found"}), 404
-    if current_user.role != "admin" and job.submitted_by_user_id != current_user.id:
+    if not _can_access_job(job):
         return jsonify({"error": "forbidden"}), 403
 
     artifact = db.session.get(Artifact, job.artifact_id) if job.artifact_id else None
     case = db.session.get(Case, job.case_id) if job.case_id else None
+    if artifact and artifact.tenant_id != job.tenant_id:
+        artifact = None
+    if case and case.tenant_id != job.tenant_id:
+        case = None
 
     payload = job.as_status()
     payload["summary"] = job.get_result_summary()
@@ -1434,11 +1529,13 @@ def api_search_events():
     use_history_only = prefer_backend == "history"
 
     if not use_history_only:
+        tenant_id = None if current_user.has_role("super_admin") else current_user.tenant_id
         os_result = search_events_opensearch(
             query=query_text,
             source_type=source_type,
             since_minutes=since_minutes,
             limit=limit,
+            tenant_id=tenant_id,
         )
         if os_result.get("count", 0) > 0 or os_result.get("backend") == "opensearch":
             result = os_result
@@ -1472,7 +1569,8 @@ def api_analytics_overview():
     if preferred == "history":
         data = history_overview_fallback(current_user=current_user, since_minutes=since_minutes)
     else:
-        data = clickhouse_overview(since_minutes=since_minutes)
+        tenant_id = None if current_user.has_role("super_admin") else current_user.tenant_id
+        data = clickhouse_overview(since_minutes=since_minutes, tenant_id=tenant_id)
         if not data.get("enabled") or data.get("errors"):
             data = history_overview_fallback(current_user=current_user, since_minutes=since_minutes)
 
@@ -1507,7 +1605,7 @@ def log_analyzer():
         if not log_text:
             flash("Provide log data.", "warning")
             return _safe_redirect(request.url, "log_analyzer")
-        case = get_or_create_active_case(current_user.id, "logs", filename or "pasted_logs.txt")
+        case = get_or_create_active_case(current_user.id, "logs", filename or "pasted_logs.txt", tenant_id=current_user.tenant_id)
         artifact = register_artifact(
             case_id=case.id,
             uploaded_by_user_id=current_user.id,
@@ -1519,6 +1617,7 @@ def log_analyzer():
                 "ingest_mode": "upload" if filename else "paste",
                 "input_size_bytes": len(log_text.encode("utf-8", errors="ignore")),
             },
+            tenant_id=current_user.tenant_id,
         )
         job = create_analysis_job(
             job_type="logs",
@@ -1526,8 +1625,9 @@ def log_analyzer():
             case_id=case.id,
             artifact_id=artifact.id,
             queue_name="logs",
+            tenant_id=current_user.tenant_id,
         )
-        task = process_logs_task.apply_async(args=(log_text, log_type, filename, current_user.id, job.id), queue="logs")
+        task = process_logs_task.apply_async(args=(log_text, log_type, filename, current_user.id, job.id, current_user.tenant_id), queue="logs")
         bind_job_task(job.id, task.id)
         return redirect(url_for('task_status', task_id=task.id))
     return render_template("log_analyzer.html", results=None)
@@ -1555,7 +1655,7 @@ def network_analyzer():
             _safe_unlink(path)
             flash("Invalid PCAP.", "danger")
             return _safe_redirect(request.url, "network_analyzer")
-        case = get_or_create_active_case(current_user.id, "network", filename)
+        case = get_or_create_active_case(current_user.id, "network", filename, tenant_id=current_user.tenant_id)
         artifact = register_artifact(
             case_id=case.id,
             uploaded_by_user_id=current_user.id,
@@ -1564,6 +1664,7 @@ def network_analyzer():
             storage_path=path,
             storage_backend="local",
             metadata={"ingest_mode": "upload", "format": filename.rsplit(".", 1)[-1].lower()},
+            tenant_id=current_user.tenant_id,
         )
         job = create_analysis_job(
             job_type="network",
@@ -1571,8 +1672,9 @@ def network_analyzer():
             case_id=case.id,
             artifact_id=artifact.id,
             queue_name="network",
+            tenant_id=current_user.tenant_id,
         )
-        task = process_network_task.apply_async(args=(path, filename, current_user.id, job.id), queue="network")
+        task = process_network_task.apply_async(args=(path, filename, current_user.id, job.id, current_user.tenant_id), queue="network")
         bind_job_task(job.id, task.id)
         return redirect(url_for('task_status', task_id=task.id))
     return render_template("network_analyzer.html", results=None)
@@ -1607,7 +1709,7 @@ def memory_helper():
             "playbook": playbook,
         }
         LAST_RESULTS["memory"] = results
-        ship_events(events, "memory")
+        ship_events(events, "memory", tenant_id=current_user.tenant_id)
         save_history("memory_playbook", results)
 
     return render_template(
@@ -1667,7 +1769,7 @@ def memory_triage():
             flash("No data.", "warning")
             return _safe_redirect(request.url, "memory_triage")
 
-        case = get_or_create_active_case(current_user.id, "memory", filename)
+        case = get_or_create_active_case(current_user.id, "memory", filename, tenant_id=current_user.tenant_id)
         artifact = register_artifact(
             case_id=case.id,
             uploaded_by_user_id=current_user.id,
@@ -1676,6 +1778,7 @@ def memory_triage():
             storage_path=path,
             storage_backend="local",
             metadata={"ingest_mode": "upload" if file and file.filename else "paste"},
+            tenant_id=current_user.tenant_id,
         )
         job = create_analysis_job(
             job_type="memory",
@@ -1683,8 +1786,9 @@ def memory_triage():
             case_id=case.id,
             artifact_id=artifact.id,
             queue_name="memory",
+            tenant_id=current_user.tenant_id,
         )
-        task = process_memory_task.apply_async(args=(path, stored_filename, filename, current_user.id, job.id), queue="memory")
+        task = process_memory_task.apply_async(args=(path, stored_filename, filename, current_user.id, job.id, current_user.tenant_id), queue="memory")
         bind_job_task(job.id, task.id)
         return redirect(url_for("task_status", task_id=task.id))
 
@@ -1697,8 +1801,15 @@ def memory_triage():
 @login_required
 def history():
     query = AnalysisHistory.query.order_by(AnalysisHistory.timestamp.desc())
-    if current_user.role != "admin":
-        query = query.filter_by(user_id=current_user.id)
+    if current_user.has_role("super_admin"):
+        pass  # super_admin sees all
+    elif current_user.has_role("admin"):
+        query = query.filter(AnalysisHistory.tenant_id == current_user.tenant_id)
+    else:
+        query = query.filter(
+            AnalysisHistory.tenant_id == current_user.tenant_id,
+            AnalysisHistory.user_id == current_user.id,
+        )
     analyses = query.all()
     return render_template("history.html", analyses=analyses)
 
@@ -1709,9 +1820,14 @@ def view_history(id):
     if not analysis:
         flash("Not found.", "danger")
         return redirect(url_for('history'))
-    if current_user.role != "admin" and analysis.user_id != current_user.id:
-        flash("Permission denied.", "danger")
-        return redirect(url_for("history"))
+    # Tenant + ownership scope
+    if not current_user.has_role("super_admin"):
+        if analysis.tenant_id != current_user.tenant_id:
+            flash("Permission denied.", "danger")
+            return redirect(url_for("history"))
+        if not current_user.has_role("admin") and analysis.user_id != current_user.id:
+            flash("Permission denied.", "danger")
+            return redirect(url_for("history"))
     results = analysis.get_results()
     if not isinstance(results, dict):
         flash("Invalid analysis data.", "danger")
@@ -1776,7 +1892,16 @@ def delete_history(id):
     if not _require_csrf():
         return redirect(url_for("history"))
     analysis = db.session.get(AnalysisHistory, id)
-    if analysis and (current_user.role == "admin" or analysis.user_id == current_user.id):
+    if not analysis:
+        return redirect(url_for('history'))
+
+    # Determine access
+    is_super = current_user.has_role("super_admin")
+    same_tenant = analysis.tenant_id == current_user.tenant_id
+    is_tenant_admin = current_user.has_role("admin") and same_tenant
+    is_owner = analysis.user_id == current_user.id and same_tenant
+
+    if is_super or is_tenant_admin or is_owner:
         try:
             _delete_history_dependencies(analysis.id)
             db.session.delete(analysis)
@@ -1786,7 +1911,7 @@ def delete_history(id):
             db.session.rollback()
             app.logger.exception("Failed to delete history id=%s", analysis.id)
             flash("Failed to delete history. Please check server logs.", "danger")
-    elif analysis:
+    else:
         flash("Permission denied.", "danger")
     return redirect(url_for('history'))
 
@@ -1806,7 +1931,12 @@ def reset_data():
     return redirect(url_for('dashboard'))
 
 def save_history(type, results, filename=None):
-    history = AnalysisHistory(type=type, user_id=current_user.id, filename=filename)
+    history = AnalysisHistory(
+        type=type,
+        user_id=current_user.id,
+        tenant_id=getattr(current_user, "tenant_id", None) or "default",
+        filename=filename,
+    )
     history.set_results(results)
     db.session.add(history)
     db.session.commit()

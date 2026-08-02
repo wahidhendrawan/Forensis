@@ -1,33 +1,38 @@
 """REST API v1 blueprint for Forensis SPA frontend."""
 
-from datetime import datetime, timezone
+from flask import Blueprint, jsonify, request
+from flask_login import current_user, login_required, login_user, logout_user
 
-from flask import Blueprint, jsonify, request, session
-from flask_login import login_user, logout_user, login_required, current_user
-
-from forensis.models import (
-    db,
-    User,
-    AnalysisHistory,
-    SystemSetting,
-)
 from forensis.analyzers.correlation_engine import correlate_recent_analyses
+from forensis.audit import audit_log
+from forensis.models import AnalysisHistory, User
 from forensis.services.analytics_service import clickhouse_overview, history_overview_fallback
 
 api = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 
 
-# ── Auth ────────────────────────────────────────────────────────────
+def _auth_payload(user):
+    return {
+        "id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "roles": user.get_roles(),
+        "tenant_id": user.tenant_id,
+        "mfa_enabled": user.mfa_enabled,
+    }
+
+
+def _tenant_history_query():
+    query = AnalysisHistory.query
+    if not current_user.has_role("super_admin"):
+        query = query.filter(AnalysisHistory.tenant_id == current_user.tenant_id)
+    return query
+
 
 @api.route("/auth/me")
 @login_required
 def auth_me():
-    return jsonify({
-        "id": current_user.id,
-        "username": current_user.username,
-        "role": current_user.role,
-        "mfa_enabled": current_user.mfa_enabled,
-    })
+    return jsonify(_auth_payload(current_user))
 
 
 @api.route("/auth/login", methods=["POST"])
@@ -39,128 +44,128 @@ def auth_login():
 
     user = User.query.filter_by(username=username).first()
     from flask_bcrypt import Bcrypt
-    bcrypt = Bcrypt()
 
+    bcrypt = Bcrypt()
     if not user or not bcrypt.check_password_hash(user.password_hash, password):
+        audit_log(
+            "auth.login",
+            "failed",
+            actor_sub=username or "anonymous",
+            tenant_id=user.tenant_id if user else None,
+            metadata={"reason": "invalid_credentials"},
+        )
         return jsonify({"error": "Invalid credentials"}), 401
 
     if user.mfa_enabled:
         import pyotp
-        totp = pyotp.TOTP(user.mfa_secret)
-        if not otp or not totp.verify(otp):
+
+        if not otp or not pyotp.TOTP(user.mfa_secret).verify(otp):
+            audit_log(
+                "auth.login",
+                "failed",
+                actor_sub=user.username,
+                actor_email=user.email,
+                tenant_id=user.tenant_id,
+                metadata={"reason": "mfa_required_or_invalid"},
+            )
             return jsonify({"error": "MFA required", "mfa_required": True}), 403
 
     login_user(user)
-    return jsonify({
-        "id": user.id,
-        "username": user.username,
-        "role": user.role,
-        "mfa_enabled": user.mfa_enabled,
-    })
+    audit_log("auth.login", "succeeded", actor_sub=user.username, actor_email=user.email, tenant_id=user.tenant_id)
+    return jsonify(_auth_payload(user))
 
 
 @api.route("/auth/logout", methods=["POST"])
 @login_required
 def auth_logout():
+    audit_log("auth.logout", "succeeded")
     logout_user()
     return jsonify({"status": "ok"})
 
 
-# ── Dashboard ───────────────────────────────────────────────────────
-
 @api.route("/dashboard")
 @login_required
 def dashboard():
-    logs_count = AnalysisHistory.query.filter_by(type="logs").count()
-    network_count = AnalysisHistory.query.filter_by(type="network").count()
-    memory_count = AnalysisHistory.query.filter(AnalysisHistory.type.like("memory%")).count()
+    query = _tenant_history_query()
+    logs_count = query.filter(AnalysisHistory.type == "logs").count()
+    network_count = query.filter(AnalysisHistory.type == "network").count()
+    memory_count = query.filter(AnalysisHistory.type.like("memory%")).count()
 
-    recent_analyses = AnalysisHistory.query.order_by(
-        AnalysisHistory.timestamp.desc()
-    ).limit(40).all()
-
+    recent_analyses = query.order_by(AnalysisHistory.timestamp.desc()).limit(40).all()
     alerts = []
-    for a in recent_analyses:
-        res = a.get_results()
-        if res and res.get("anomalies"):
-            for anomaly in res["anomalies"][:3]:
-                alerts.append({
-                    "timestamp": a.timestamp.isoformat() if a.timestamp else None,
-                    "type": a.type,
+    for analysis in recent_analyses:
+        results = analysis.get_results()
+        for anomaly in (results.get("anomalies") or [])[:3] if isinstance(results, dict) else []:
+            alerts.append(
+                {
+                    "timestamp": analysis.timestamp.isoformat() if analysis.timestamp else None,
+                    "type": analysis.type,
                     "message": anomaly.get("reason", "Unknown"),
-                })
+                }
+            )
 
+    latest_log = query.filter(AnalysisHistory.type == "logs").order_by(AnalysisHistory.timestamp.desc()).first()
     correlation = correlate_recent_analyses(recent_analyses)
+    return jsonify(
+        {
+            "counts": {"logs": logs_count, "network": network_count, "memory": memory_count},
+            "recent_alerts": alerts[:20],
+            "correlation": {
+                "findings": len(correlation.get("findings", [])),
+                "severity_counts": correlation.get("severity_counts", {}),
+            },
+            "latest_log": {
+                "id": latest_log.id,
+                "filename": latest_log.filename,
+                "timestamp": latest_log.timestamp.isoformat() if latest_log.timestamp else None,
+            } if latest_log else None,
+        }
+    )
 
-    latest_log = AnalysisHistory.query.filter_by(type="logs").order_by(
-        AnalysisHistory.timestamp.desc()
-    ).first()
-
-    return jsonify({
-        "counts": {
-            "logs": logs_count,
-            "network": network_count,
-            "memory": memory_count,
-        },
-        "recent_alerts": alerts[:20],
-        "correlation": {
-            "findings": len(correlation.get("findings", [])),
-            "severity_counts": correlation.get("severity_counts", {}),
-        },
-        "latest_log": {
-            "id": latest_log.id,
-            "filename": latest_log.filename,
-            "timestamp": latest_log.timestamp.isoformat() if latest_log and latest_log.timestamp else None,
-        } if latest_log else None,
-    })
-
-
-# ── History ─────────────────────────────────────────────────────────
 
 @api.route("/history")
 @login_required
 def history():
-    limit = request.args.get("limit", 50, type=int)
-    query = AnalysisHistory.query.order_by(AnalysisHistory.timestamp.desc())
-    if current_user.role != "admin":
-        query = query.filter_by(user_id=current_user.id)
-    analyses = query.limit(min(limit, 200)).all()
+    limit = max(1, min(request.args.get("limit", 50, type=int) or 50, 200))
+    query = _tenant_history_query().order_by(AnalysisHistory.timestamp.desc())
+    if not current_user.has_role("admin", "super_admin"):
+        query = query.filter(AnalysisHistory.user_id == current_user.id)
 
-    items = []
-    for a in analyses:
-        items.append({
-            "id": a.id,
-            "type": a.type,
-            "filename": a.filename,
-            "timestamp": a.timestamp.isoformat() if a.timestamp else None,
-            "user_id": a.user_id,
-        })
-
+    items = [
+        {
+            "id": analysis.id,
+            "type": analysis.type,
+            "filename": analysis.filename,
+            "timestamp": analysis.timestamp.isoformat() if analysis.timestamp else None,
+            "user_id": analysis.user_id,
+            "tenant_id": analysis.tenant_id,
+        }
+        for analysis in query.limit(limit).all()
+    ]
     return jsonify({"items": items, "count": len(items)})
 
-
-# ── Analytics ───────────────────────────────────────────────────────
 
 @api.route("/analytics/overview")
 @login_required
 def analytics_overview():
-    since_minutes = request.args.get("since_minutes", 1440, type=int)
-    data = clickhouse_overview(since_minutes=since_minutes)
+    since_minutes = max(5, min(request.args.get("since_minutes", 1440, type=int) or 1440, 43200))
+    tenant_id = None if current_user.has_role("super_admin") else current_user.tenant_id
+    data = clickhouse_overview(since_minutes=since_minutes, tenant_id=tenant_id)
     if not data.get("enabled") or data.get("errors"):
         data = history_overview_fallback(current_user=current_user, since_minutes=since_minutes)
     data["since_minutes"] = since_minutes
     return jsonify(data)
 
 
-# ── Health ──────────────────────────────────────────────────────────
-
 @api.route("/health")
 def health():
     from forensis.analyzers.sigma_engine import SigmaEngine
-    import os
-    return jsonify({
-        "status": "ok",
-        "db": "connected",
-        "rules": len(SigmaEngine._rules_cache) if hasattr(SigmaEngine, "_rules_cache") else "?",
-        "version": "2.0.0",
-    })
+
+    return jsonify(
+        {
+            "status": "ok",
+            "db": "connected",
+            "rules": len(SigmaEngine._rules_cache) if hasattr(SigmaEngine, "_rules_cache") else "?",
+            "version": "2.0.0",
+        }
+    )
