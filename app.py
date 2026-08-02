@@ -28,6 +28,7 @@ from flask import (
     session,
     jsonify,
 )
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_bcrypt import Bcrypt
@@ -128,6 +129,15 @@ ALLOWED_PCAP_EXT = {"pcap", "pcapng"}
 ALLOWED_MEMORY_EXT = {"txt", "log", "json", "jsonl", "ndjson", "csv", "tsv", "xml", "yaml", "yml", "zip", "vmem", "mem", "raw", "dmp", "img", "bin"}
 VALID_USER_ROLES = {"admin", "analyst"}
 MEMORY_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024
+MEMORY_ARCHIVE_MAX_ENTRIES = _env_int("FORENSIS_MEMORY_ARCHIVE_MAX_ENTRIES", 100, min_value=1, max_value=1000)
+MEMORY_ARCHIVE_MAX_UNCOMPRESSED_BYTES = _env_int(
+    "FORENSIS_MEMORY_ARCHIVE_MAX_UNCOMPRESSED_BYTES", 64 * 1024 * 1024,
+    min_value=1 * 1024 * 1024,
+    max_value=512 * 1024 * 1024,
+)
+MEMORY_ARCHIVE_MAX_COMPRESSION_RATIO = _env_int(
+    "FORENSIS_MEMORY_ARCHIVE_MAX_COMPRESSION_RATIO", 100, min_value=1, max_value=1000
+)
 MEMORY_FILE_MAX_BYTES = 8 * 1024 * 1024
 MEMORY_TEXT_MAX_BYTES = 50 * 1024 * 1024
 MEMORY_IMAGE_MAX_BYTES = 256 * 1024 * 1024
@@ -180,6 +190,13 @@ else:
     }
 app.config['CELERY_BROKER_URL'] = os.getenv('CELERY_BROKER_URL', 'redis://redis:6379/0')
 app.config['CELERY_RESULT_BACKEND'] = os.getenv('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
+# Flask rejects request bodies above this before they are written to the upload folder.
+app.config["MAX_CONTENT_LENGTH"] = max(PCAP_MAX_UPLOAD_BYTES, MEMORY_IMAGE_MAX_BYTES)
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_request_entity_too_large(_error):
+    return jsonify({"message": "Upload exceeds the configured size limit."}), 413
+
 
 def make_celery(app):
     celery = Celery(app.import_name)
@@ -534,6 +551,33 @@ def _read_memory_image_strings(path: str) -> str:
     return header + "\n".join(lines)
 
 
+def _validate_memory_archive(path: str) -> None:
+    """Reject ZIP archives that could exhaust worker CPU, memory, or disk."""
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            entries = [info for info in zf.infolist() if not info.is_dir()]
+            if len(entries) > MEMORY_ARCHIVE_MAX_ENTRIES:
+                raise ValueError(
+                    f"Archive contains too many files (max {MEMORY_ARCHIVE_MAX_ENTRIES})."
+                )
+
+            total_uncompressed = 0
+            for info in entries:
+                # Encrypted archives cannot be inspected safely by this parser.
+                if info.flag_bits & 0x1:
+                    raise ValueError("Password-protected ZIP archives are not supported.")
+                compressed_size = max(info.compress_size, 1)
+                if info.file_size and info.file_size / compressed_size > MEMORY_ARCHIVE_MAX_COMPRESSION_RATIO:
+                    raise ValueError("Archive compression ratio exceeds the allowed limit.")
+                total_uncompressed += info.file_size
+                if total_uncompressed > MEMORY_ARCHIVE_MAX_UNCOMPRESSED_BYTES:
+                    raise ValueError(
+                        "Archive expands beyond the allowed uncompressed-size limit."
+                    )
+    except zipfile.BadZipFile as exc:
+        raise ValueError("Invalid ZIP archive.") from exc
+
+
 def _read_memory_input(path: str, filename: str) -> str:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     memory_image_ext = {"vmem", "mem", "raw", "dmp", "img", "bin"}
@@ -544,7 +588,9 @@ def _read_memory_input(path: str, filename: str) -> str:
         with open(path, "r", errors="ignore") as f:
             return f.read()
 
+    _validate_memory_archive(path)
     chunks = []
+    bytes_read = 0
     allowed_inner_ext = {"txt", "log", "json", "jsonl", "ndjson", "csv", "tsv", "xml", "yaml", "yml", "vmem", "mem", "raw", "dmp", "img", "bin"}
     with zipfile.ZipFile(path, "r") as zf:
         for info in zf.infolist():
@@ -553,11 +599,17 @@ def _read_memory_input(path: str, filename: str) -> str:
             inner_name = info.filename
             inner_ext = inner_name.rsplit(".", 1)[-1].lower() if "." in inner_name else ""
             max_allowed = MEMORY_IMAGE_MAX_BYTES if inner_ext in memory_image_ext else MEMORY_FILE_MAX_BYTES
-            if info.file_size > max_allowed:
+            if info.file_size > max_allowed or inner_ext not in allowed_inner_ext:
                 continue
-            if inner_ext not in allowed_inner_ext:
-                continue
-            data = zf.read(info)
+
+            read_limit = min(max_allowed, MEMORY_ARCHIVE_MAX_UNCOMPRESSED_BYTES - bytes_read)
+            if read_limit <= 0:
+                break
+            with zf.open(info, "r") as entry:
+                data = entry.read(read_limit + 1)
+            if len(data) > read_limit:
+                raise ValueError("Archive entry exceeds the allowed extraction limit.")
+            bytes_read += len(data)
 
             if inner_ext in memory_image_ext:
                 text = "\n".join(_extract_printable_strings(data[:MEMORY_IMAGE_SCAN_BYTES])).strip()
