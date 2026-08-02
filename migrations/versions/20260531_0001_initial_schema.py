@@ -27,7 +27,7 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "user",
+        "users",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("username", sa.String(length=150), nullable=False),
         sa.Column("password_hash", sa.String(length=200), nullable=False),
@@ -48,7 +48,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.Integer(), nullable=True),
         sa.Column("results_json", sa.Text(), nullable=True),
         sa.Column("filename", sa.String(length=255), nullable=True),
-        sa.ForeignKeyConstraint(["user_id"], ["user.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_analysis_history_timestamp"), "analysis_history", ["timestamp"], unique=False)
@@ -77,7 +77,7 @@ def upgrade() -> None:
         sa.Column("metadata_json", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["owner_user_id"], ["user.id"]),
+        sa.ForeignKeyConstraint(["owner_user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_dfir_case_case_key"), "dfir_case", ["case_key"], unique=True)
@@ -101,7 +101,7 @@ def upgrade() -> None:
         sa.Column("metadata_json", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(["case_id"], ["dfir_case.id"]),
-        sa.ForeignKeyConstraint(["uploaded_by_user_id"], ["user.id"]),
+        sa.ForeignKeyConstraint(["uploaded_by_user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_artifact_artifact_type"), "artifact", ["artifact_type"], unique=False)
@@ -132,7 +132,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["artifact_id"], ["artifact.id"]),
         sa.ForeignKeyConstraint(["case_id"], ["dfir_case.id"]),
         sa.ForeignKeyConstraint(["history_id"], ["analysis_history.id"]),
-        sa.ForeignKeyConstraint(["submitted_by_user_id"], ["user.id"]),
+        sa.ForeignKeyConstraint(["submitted_by_user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("task_id"),
     )
@@ -279,5 +279,5 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_analysis_history_timestamp"), table_name="analysis_history")
     op.drop_table("analysis_history")
 
-    op.drop_table("user")
+    op.drop_table("users")
     op.drop_table("group")

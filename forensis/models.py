@@ -70,6 +70,8 @@ class JsonTextMixin:
 
 
 class User(UserMixin, db.Model):
+    __tablename__ = "users"
+
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
@@ -87,7 +89,7 @@ class User(UserMixin, db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("oidc_issuer", "oidc_subject", name="uq_user_oidc_identity"),
-        db.Index("ix_user_tenant_username", "tenant_id", "username"),
+        db.Index("ix_users_tenant_username", "tenant_id", "username"),
     )
 
     group = db.relationship("Group", backref="users")
@@ -127,7 +129,7 @@ class AnalysisHistory(JsonTextMixin, db.Model):
     type = db.Column(db.String(50), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     tenant_id = db.Column(db.String(64), nullable=False, default=DEFAULT_TENANT_ID, server_default=DEFAULT_TENANT_ID, index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
     results_json = db.Column(db.Text, nullable=True)
     filename = db.Column(db.String(255), nullable=True)
 
@@ -160,7 +162,7 @@ class Case(JsonTextMixin, db.Model):
     description = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(32), nullable=False, default="open", index=True)
     severity = db.Column(db.String(16), nullable=False, default="medium", index=True)
-    owner_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
     schema_version = db.Column(db.String(32), nullable=False, default="forensis-ecs-0.1")
     metadata_json = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
@@ -184,7 +186,7 @@ class Artifact(JsonTextMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     tenant_id = db.Column(db.String(64), nullable=False, default=DEFAULT_TENANT_ID, server_default=DEFAULT_TENANT_ID, index=True)
     case_id = db.Column(db.Integer, db.ForeignKey("dfir_case.id"), nullable=True, index=True)
-    uploaded_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
+    uploaded_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
     artifact_type = db.Column(db.String(32), nullable=False, index=True)
     filename = db.Column(db.String(255), nullable=False)
     storage_backend = db.Column(db.String(32), nullable=False, default="local")
@@ -213,7 +215,7 @@ class AnalysisJob(JsonTextMixin, db.Model):
     case_id = db.Column(db.Integer, db.ForeignKey("dfir_case.id"), nullable=True, index=True)
     artifact_id = db.Column(db.Integer, db.ForeignKey("artifact.id"), nullable=True, index=True)
     history_id = db.Column(db.Integer, db.ForeignKey("analysis_history.id"), nullable=True, index=True)
-    submitted_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
+    submitted_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
     job_type = db.Column(db.String(32), nullable=False, index=True)
     queue_name = db.Column(db.String(64), nullable=False, default="default")
     state = db.Column(db.String(16), nullable=False, default="queued", index=True)
