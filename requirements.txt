@@ -18,4 +18,4 @@ redis>=8.1.0
 yara-python>=4.5.4
 psycopg[binary]>=3.3.4
 gunicorn>=26.0.0
-alembic>=1.18.5
+alembic>=1.19.1
