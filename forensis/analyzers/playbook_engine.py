@@ -2,7 +2,7 @@ import csv
 import io
 import json
 import re
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from collections import Counter
 from typing import Dict, List, Tuple
 
@@ -107,6 +107,10 @@ PLAYBOOKS = {
 
 # Backward compatibility for legacy profile name used in previous releases.
 PLAYBOOKS["network"]["intrusion_detection"] = PLAYBOOKS["network"]["network.analysis.deep_inspection"]
+
+# Parser resource limits to prevent denial-of-service attacks
+MAX_PARSED_RECORDS = 5000
+MAX_PARSE_OUTPUT_BYTES = 50 * 1024 * 1024  # 50 MB
 
 SUSPICIOUS_PATTERNS = [
     {"label": "mimikatz", "category": "credential_access", "severity": "critical", "regex": re.compile(r"mimikatz|sekurlsa::|lsadump::", re.I)},
@@ -365,8 +369,14 @@ def _parse_table_output(raw_output: str) -> List[Dict]:
 
 
 def _extract_structured_records(raw_output: str) -> Tuple[str, List[Dict]]:
+    # Reject oversized input before parsing
+    if len(raw_output) > MAX_PARSE_OUTPUT_BYTES:
+        raise ValueError(f"Input exceeds {MAX_PARSE_OUTPUT_BYTES // (1024 * 1024)} MB limit.")
+
     json_rows = _parse_json_blob(raw_output)
     if json_rows:
+        if len(json_rows) > MAX_PARSED_RECORDS:
+            raise ValueError(f"Parsed record count exceeds limit ({MAX_PARSED_RECORDS}).")
         return "json", json_rows
 
     parsers = [
@@ -380,6 +390,8 @@ def _extract_structured_records(raw_output: str) -> Tuple[str, List[Dict]]:
     ]
     for fmt, rows in parsers:
         if rows:
+            if len(rows) > MAX_PARSED_RECORDS:
+                raise ValueError(f"Parsed record count exceeds limit ({MAX_PARSED_RECORDS}).")
             return fmt, rows
     return "raw_text", []
 
