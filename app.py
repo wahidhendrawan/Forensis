@@ -161,7 +161,13 @@ except Exception:
 
 app = Flask(__name__)
 app.register_blueprint(api_v1_blueprint)
-app.config["SECRET_KEY"] = os.getenv("FORENSIS_SECRET_KEY", "change-me-in-production")
+FORENSIS_SECRET_KEY = os.getenv("FORENSIS_SECRET_KEY")
+if not FORENSIS_SECRET_KEY or FORENSIS_SECRET_KEY == "change-me-in-production":
+    raise RuntimeError(
+        "FATAL: FORENSIS_SECRET_KEY must be set to a strong, unique value before starting. "
+        "Generate a secure key with `python -c 'import secrets; print(secrets.token_urlsafe(48))'`"
+    )
+app.config["SECRET_KEY"] = FORENSIS_SECRET_KEY
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 db_uri = os.getenv('FORENSIS_DB_URI', f'sqlite:///{DB_PATH}')
 app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
@@ -2169,7 +2175,17 @@ def _bootstrap_database():
     _ensure_runtime_indexes()
     admin_user = os.getenv("FORENSIS_ADMIN_USER", "admin")
     if not User.query.filter_by(username=admin_user).first():
-        admin_pass = os.getenv("FORENSIS_ADMIN_PASSWORD", "forensis123")
+        admin_pass = os.getenv("FORENSIS_ADMIN_PASSWORD")
+        if not admin_pass:
+            raise RuntimeError(
+                "FATAL: FORENSIS_ADMIN_PASSWORD must be set before starting. "
+                "Generate a secure password and set FORENSIS_ADMIN_PASSWORD in environment."
+            )
+        if admin_pass.lower() in {"forensis123", "forensis_change_me", "forensis_change_me_please", "admin", "password", "changeme"}:
+            raise RuntimeError(
+                "FATAL: FORENSIS_ADMIN_PASSWORD uses a forbidden placeholder. "
+                "Set a strong password in FORENSIS_ADMIN_PASSWORD before starting."
+            )
         hashed_pw = bcrypt.generate_password_hash(admin_pass).decode("utf-8")
         default_group = Group.query.filter_by(name="Administrators").first()
         if not default_group:

@@ -143,7 +143,7 @@ services:
     environment:
       - POSTGRES_DB=${FORENSIS_POSTGRES_DB:-forensis}
       - POSTGRES_USER=${FORENSIS_POSTGRES_USER:-forensis}
-      - POSTGRES_PASSWORD=${FORENSIS_POSTGRES_PASSWORD:-forensis_change_me}
+      - POSTGRES_PASSWORD=${FORENSIS_POSTGRES_PASSWORD:?FORENSIS_POSTGRES_PASSWORD must be set in .env}
       - TZ=Asia/Jakarta
     ports:
       - "5432:5432"
@@ -162,7 +162,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       - MINIO_ROOT_USER=${FORENSIS_MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${FORENSIS_MINIO_ROOT_PASSWORD:-minio_change_me_please}
+      - MINIO_ROOT_PASSWORD=${FORENSIS_MINIO_ROOT_PASSWORD:?FORENSIS_MINIO_ROOT_PASSWORD must be set in .env}
       - TZ=Asia/Jakarta
     ports:
       - "9000:9000"
