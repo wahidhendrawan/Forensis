@@ -1,13 +1,11 @@
-[![CI](https://github.com/wahidhendrawan/Forensis/actions/workflows/ci.yml/badge.svg)](https://github.com/wahidhendrawan/Forensis/actions/workflows/ci.yml)
-
 # Forensis 🔍
 
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL-3.0-blue.svg)](https://github.com/wahidhendrawan/Forensis/blob/main/LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.0.0-green.svg)](https://github.com/wahidhendrawan/Forensis/releases)
-[![CI](https://github.com/wahidhendrawan/Forensis/actions/workflows/ci.yml/badge.svg)](https://github.com/wahidhendrawan/Forensis/actions)
+[![CI](https://github.com/wahidhendrawan/Forensis/actions/workflows/ci.yml/badge.svg)](https://github.com/wahidhendrawan/Forensis/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/wahidhendrawan/Forensis?sort=semver)](https://github.com/wahidhendrawan/Forensis/releases/latest)
+[![License](https://img.shields.io/github/license/wahidhendrawan/Forensis)](LICENSE)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/wahidhendrawan/Forensis/badge)](https://scorecard.dev/viewer/?uri=github.com/wahidhendrawan/Forensis)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/docker-compose%20ready-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
-[![CodeQL](https://github.com/wahidhendrawan/Forensis/actions/workflows/codeql.yml/badge.svg)](https://github.com/wahidhendrawan/Forensis/actions/workflows/codeql.yml)
 [![Pages](https://img.shields.io/badge/docs-🌐-orange.svg)](https://wahidhendrawan.github.io/Forensis/)
 [![Last Commit](https://img.shields.io/github/last-commit/wahidhendrawan/Forensis)](https://github.com/wahidhendrawan/Forensis/commits/main)
 [![GitHub stars](https://img.shields.io/github/stars/wahidhendrawan/Forensis?style=social)](https://github.com/wahidhendrawan/Forensis/stargazers)
@@ -101,7 +99,7 @@ These entities are persisted and linked per investigation to support reliable cr
 - Built-in SigmaHQ baseline ruleset from repository `SigmaHQ/sigma`, pinned to commit `994da16651194500b607a3007186c29779e1f961` (`rules/` path).
 - Automatic local baseline cache bootstrap on startup (no manual sync required for core rules).
 - Local Sigma rule correlation for logs, network, and memory artifacts.
-- Dashboard actions to sync Sigma rules from remote URLs.
+- Dashboard actions (admins only) to sync Sigma rules from remote URLs; every redirect hop is re-checked against private/link-local addresses and downloads are size-capped.
 - Rule reload support without restarting the full stack.
 
 ### 6. Fast Malicious Detection Stack (Beyond Sigma)
@@ -128,7 +126,8 @@ These entities are persisted and linked per investigation to support reliable cr
 ### 9. History and Reporting
 - Persist analysis history for logs, network, memory playbooks, and memory triage.
 - View, delete, and review previous sessions.
-- Export report bundle from current in-memory result set.
+- Export JSON/CSV per analysis (`/export/<logs|network|memory>/<history_id>/<json|csv>`), scoped like the history views.
+- Export report bundle with the latest analysis of each type you are allowed to see.
 
 ## Stack
 - Flask
@@ -148,9 +147,23 @@ These entities are persisted and linked per investigation to support reliable cr
 2. Create or edit `.env` in project root:
 
 ```env
+# Required by docker-compose.yml
+FORENSIS_POSTGRES_PASSWORD=replace_with_strong_db_password
+FORENSIS_MINIO_ROOT_PASSWORD=replace_with_strong_minio_password
+# Optional: unset -> generated once and stored in instance/secret_key (0600)
 FORENSIS_SECRET_KEY=replace_with_strong_secret
 FORENSIS_ADMIN_USER=admin
-FORENSIS_ADMIN_PASSWORD=forensis123
+# Optional: unset -> random password, printed once in the forensis container log
+# FORENSIS_ADMIN_PASSWORD=
+# Set to 1 when Forensis is served over HTTPS (marks the session cookie Secure)
+# FORENSIS_SESSION_COOKIE_SECURE=0
+# Failed-login throttle per client IP (shared through Redis, defaults to CELERY_BROKER_URL)
+# FORENSIS_LOGIN_MAX_FAILURES=10
+# FORENSIS_LOGIN_WINDOW_SECONDS=300
+# FORENSIS_RATELIMIT_REDIS_URL=redis://redis:6379/0
+# Upload limits (request body cap never goes below the largest per-type cap)
+# FORENSIS_LOG_MAX_UPLOAD_BYTES=52428800
+# FORENSIS_MAX_CONTENT_LENGTH=
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/0
 # Optional SigmaHQ baseline controls
@@ -180,7 +193,7 @@ CELERY_RESULT_BACKEND=redis://redis:6379/0
 # FORENSIS_PCAP_MAX_PACKETS=350000
 # FORENSIS_PCAP_MAX_TRACKED_FLOWS=250000
 # Optional DB backend (example PostgreSQL)
-# FORENSIS_DB_URI=postgresql+psycopg://forensis:forensis_change_me@postgres:5432/forensis
+# FORENSIS_DB_URI=postgresql+psycopg://forensis:<FORENSIS_POSTGRES_PASSWORD>@postgres:5432/forensis
 # Optional OpenSearch sink/search
 # FORENSIS_OPENSEARCH_URL=http://opensearch:9200
 # FORENSIS_OPENSEARCH_INDEX=forensis-events
@@ -202,18 +215,32 @@ CELERY_RESULT_BACKEND=redis://redis:6379/0
 # FORENSIS_DISPLAY_TZ=Asia/Jakarta
 ```
 
-3. Build and run:
+3. The image runs as non-root uid `10001`. On Linux hosts, make the bind-mounted data directories writable for it:
+
+```bash
+mkdir -p uploads instance && sudo chown 10001:10001 uploads instance
+```
+
+4. Build and run:
 
 ```bash
 docker compose up -d --build
 ```
 
-4. Open:
+5. Open:
 - `http://localhost:5000`
 
-Default credentials (if unchanged):
-- Username: `admin`
-- Password: `forensis123`
+Login as `FORENSIS_ADMIN_USER` (default `admin`). If `FORENSIS_ADMIN_PASSWORD` was not set, read the generated password once from the log:
+
+```bash
+docker compose logs forensis | grep "generated password"
+```
+
+For development with the source tree live-mounted into the containers, add the opt-in override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
 
 ### Local run
 1. Create virtual environment and install dependencies:
@@ -232,6 +259,23 @@ python app.py
 
 3. Open:
 - `http://127.0.0.1:5000`
+
+Run the tests:
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest
+```
+
+Dependencies: edit `requirements.in`, then regenerate the pinned lockfile with `pip-compile --strip-extras --no-emit-index-url --output-file=requirements.txt requirements.in` (pip-tools, run on the Dockerfile's Python).
+
+### Native PCAP engine (optional)
+
+`forensis_core/` is a small Rust extension (PyO3 + maturin, no `unsafe`) that parses PCAP/PCAPNG uploads and builds the network flow results with the GIL released. `forensis/analyzers/network_analyzer.py` uses it when it can be imported and otherwise runs the pure-Python dpkt implementation, which stays the reference: both return identical results (`tests/test_pcap_engine.py` checks parity and fuzzes malformed captures), and the worker log line `PCAP engine: rust` / `PCAP engine: python` shows which one ran. The Docker image always builds it; locally it needs a Rust toolchain (https://rustup.rs):
+
+```bash
+pip install ./forensis_core   # builds and installs the wheel; rerun after changing the Rust code
+```
 
 ## Main Routes
 - `/` (redirects to `/login`)
@@ -263,6 +307,10 @@ This profile enables:
 - `opensearch` + `opensearch_dashboards`
 
 `postgres` runs in the default compose stack.
+
+Internal services (Redis, MinIO, RabbitMQ, OpenSearch, ClickHouse) are not published to the host; PostgreSQL (`5432`, for the cutover script below) and OpenSearch Dashboards (`5601`) are bound to `127.0.0.1` only.
+
+**OpenSearch security:** the bundled single-node OpenSearch runs with `DISABLE_SECURITY_PLUGIN=true` (no authentication, no TLS) and is reachable only on the internal compose network. Do not publish port `9200`/`5601` beyond localhost. For shared or production use, enable the security plugin (set `OPENSEARCH_INITIAL_ADMIN_PASSWORD`, configure TLS certificates) and point Forensis at it with `FORENSIS_OPENSEARCH_URL=https://...`, `FORENSIS_OPENSEARCH_USERNAME`, `FORENSIS_OPENSEARCH_PASSWORD` and `FORENSIS_OPENSEARCH_VERIFY_TLS`.
 
 Enable ClickHouse analytics profile:
 
@@ -373,6 +421,7 @@ Forensis/
 │   │   └── rule_service.py
 │   └── integrations/
 │       └── elk_loki.py
+├── forensis_core/          # optional Rust PCAP engine (PyO3 + maturin)
 ├── migrations/
 │   └── versions/
 ├── deploy/
@@ -395,6 +444,8 @@ Forensis/
 ├── Dockerfile
 ├── alembic.ini
 ├── docker-compose.yml
+├── docker-compose.dev.yml
+├── requirements.in
 └── requirements.txt
 ```
 
@@ -435,8 +486,9 @@ Forensis will support remote forensic acquisition via [Velociraptor](https://doc
 ---
 
 ## Security Notes
-- Change default admin credentials immediately.
-- Use a strong `FORENSIS_SECRET_KEY`.
+- Set `FORENSIS_ADMIN_PASSWORD` or rotate the generated admin password after first login.
+- Use a strong `FORENSIS_SECRET_KEY` (or keep the generated `instance/secret_key` private).
+- Serve over HTTPS and set `FORENSIS_SESSION_COOKIE_SECURE=1`.
 - Enable MFA for privileged users.
 - Keep TI feed, baseline allowlist, and custom YARA rules under version control.
 - Review uploaded artifact handling and storage policy before production use.

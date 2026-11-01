@@ -1,0 +1,9 @@
+# Opt-in dev override: live-mount the source tree into the app containers.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+services:
+  forensis:
+    volumes:
+      - .:/app
+  celery_worker:
+    volumes:
+      - .:/app

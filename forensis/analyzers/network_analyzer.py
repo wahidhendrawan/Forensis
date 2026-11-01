@@ -1,9 +1,19 @@
 from collections import defaultdict, Counter
+import logging
 import os
 import socket
 import ipaddress
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+
+
+try:  # optional Rust engine (forensis_core/); the dpkt code below stays the reference
+    # from-import: the crate's source dir alone would import as an empty namespace package
+    from forensis_core import analyze_pcap as _native_analyze_pcap, __version__ as _native_version
+except ImportError:
+    _native_analyze_pcap = None
+
+logger = logging.getLogger(__name__)
 
 
 def _try_import_dpkt():
@@ -94,6 +104,16 @@ def _format_ts(ts):
 
 
 def analyze_pcap(path: str):
+    if _native_analyze_pcap is not None:
+        logger.info("PCAP engine: rust (forensis_core %s) for %s", _native_version, os.path.basename(path))
+        return _native_analyze_pcap(
+            path, PCAP_MAX_PACKETS, PCAP_MAX_TRACKED_FLOWS, DISPLAY_TZ_NAME, _format_ts, _is_private_ip
+        )
+    logger.info("PCAP engine: python (dpkt) for %s", os.path.basename(path))
+    return _analyze_pcap_python(path)
+
+
+def _analyze_pcap_python(path: str):
     dpkt = _try_import_dpkt()
     if dpkt is None:
         return {

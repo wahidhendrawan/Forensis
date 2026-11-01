@@ -6,6 +6,7 @@ on:
     paths:
       - "app.py"
       - "forensis/**"
+      - "forensis_core/**"
       - "requirements.txt"
       - "Dockerfile"
       - "docker-compose.yml"
@@ -15,6 +16,7 @@ on:
     paths:
       - "app.py"
       - "forensis/**"
+      - "forensis_core/**"
       - "requirements.txt"
       - "Dockerfile"
       - "docker-compose.yml"
@@ -30,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Prepare environment
         run: |
@@ -39,11 +41,14 @@ jobs:
           FORENSIS_POSTGRES_DB=forensis
           FORENSIS_POSTGRES_USER=forensis
           FORENSIS_POSTGRES_PASSWORD=ci-smoke-password
+          FORENSIS_MINIO_ROOT_PASSWORD=ci-smoke-minio-password
           FORENSIS_SECRET_KEY=ci-smoke-secret
           FORENSIS_DB_URI=postgresql+psycopg://forensis:ci-smoke-password@postgres:5432/forensis
           EOF
           fi
           mkdir -p uploads instance
+          # The image runs as uid 10001; bind-mounted data dirs must be writable by it (see README).
+          sudo chown 10001:10001 uploads instance
 
       - name: Build and start core services
         run: docker compose up -d --build postgres redis forensis

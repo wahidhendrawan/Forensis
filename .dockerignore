@@ -1,0 +1,13 @@
+.git
+.github
+.env
+.env.*
+venv
+.venv
+**/__pycache__
+uploads
+instance
+sigma_rules/_remote
+sigma_rules/_sigmahq_baseline
+threat_intel/lookup_cache.json
+forensis_core/target

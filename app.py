@@ -6,6 +6,7 @@ import zipfile
 import re
 import base64
 import secrets
+import tempfile
 import time
 import pyotp
 import qrcode
@@ -33,6 +34,10 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 from celery import Celery
+try:
+    import fcntl  # Unix-only; serializes DB bootstrap across gunicorn workers.
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore
 try:
     from alembic import command as alembic_command
     from alembic.config import Config as AlembicConfig
@@ -90,6 +95,7 @@ load_dotenv()
 
 from forensis.api_v1 import api as api_v1_blueprint
 from forensis.audit import audit_log
+from forensis import login_throttle
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
@@ -136,6 +142,10 @@ MEMORY_IMAGE_SCAN_BYTES = 64 * 1024 * 1024
 MEMORY_STRINGS_MIN_LEN = 6
 MEMORY_STRINGS_MAX_LINES = 20000
 PCAP_MAX_UPLOAD_BYTES = _env_int("FORENSIS_PCAP_MAX_UPLOAD_BYTES", 300 * 1024 * 1024, min_value=5 * 1024 * 1024, max_value=2 * 1024 * 1024 * 1024)
+LOG_MAX_UPLOAD_BYTES = _env_int("FORENSIS_LOG_MAX_UPLOAD_BYTES", 50 * 1024 * 1024, min_value=1024 * 1024, max_value=1024 * 1024 * 1024)
+# Request body cap; never below the largest per-type cap (+1 MB multipart overhead) so those checks still apply.
+_MIN_CONTENT_LENGTH = max(PCAP_MAX_UPLOAD_BYTES, MEMORY_IMAGE_MAX_BYTES, LOG_MAX_UPLOAD_BYTES) + 1024 * 1024
+MAX_CONTENT_LENGTH = _env_int("FORENSIS_MAX_CONTENT_LENGTH", _MIN_CONTENT_LENGTH, min_value=_MIN_CONTENT_LENGTH)
 OTX_API_KEY_SETTING = "otx_api_key"
 OTX_API_KEY_MIN_LEN = 16
 OTX_API_KEY_MAX_LEN = 256
@@ -159,9 +169,33 @@ except Exception:
     DISPLAY_TIMEZONE_NAME = "UTC"
     DISPLAY_TIMEZONE = timezone.utc
 
+def _load_or_create_secret_key(instance_dir: str) -> str:
+    key = os.getenv("FORENSIS_SECRET_KEY", "").strip()
+    if key:
+        return key
+    path = os.path.join(instance_dir, "secret_key")
+    if not os.path.isfile(path):
+        os.makedirs(instance_dir, exist_ok=True)
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+            f.write(secrets.token_hex(32))
+        try:
+            # link() fails if another gunicorn worker won the race, so every worker reads the same key.
+            os.link(tmp, path)
+        except FileExistsError:
+            pass
+        finally:
+            os.unlink(tmp)
+    with open(path, encoding="utf-8") as f:
+        return f.read().strip()
+
+
 app = Flask(__name__)
 app.register_blueprint(api_v1_blueprint)
-app.config["SECRET_KEY"] = os.getenv("FORENSIS_SECRET_KEY", "change-me-in-production")
+app.config["SECRET_KEY"] = _load_or_create_secret_key(os.path.dirname(DB_PATH))
+app.config["SESSION_COOKIE_SECURE"] = os.getenv("FORENSIS_SESSION_COOKIE_SECURE", "0").strip().lower() in {"1", "true", "yes", "on"}
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 db_uri = os.getenv('FORENSIS_DB_URI', f'sqlite:///{DB_PATH}')
 app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
@@ -241,12 +275,6 @@ db.init_app(app)
 bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
-
-LAST_RESULTS = {
-    "logs": None,
-    "network": None,
-    "memory": None,
-}
 
 RUNTIME_INDEX_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_analysis_history_type_ts ON analysis_history (type, timestamp)",
@@ -613,6 +641,9 @@ def login():
         return _safe_redirect(request.args.get("next"))
 
     if request.method == "POST":
+        if login_throttle.is_throttled():
+            flash("Too many failed login attempts. Try again later.", "danger")
+            return render_template("login.html", otp_required=False), 429
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "").strip()
         otp = request.form.get("otp", "").strip()
@@ -624,6 +655,7 @@ def login():
                     return render_template("login.html", otp_required=True, username=username)
                 totp = pyotp.TOTP(user.mfa_secret)
                 if not totp.verify(otp):
+                    login_throttle.record_failure()
                     audit_log("auth.login", "failed", actor_sub=username, metadata={"reason": "Invalid MFA code"})
                     flash("Invalid authentication code.", "danger")
                     return render_template("login.html", otp_required=True, username=username)
@@ -633,6 +665,7 @@ def login():
             flash("Logged in successfully.", "success")
             return _safe_redirect(request.args.get("next"))
         else:
+            login_throttle.record_failure()
             audit_log("auth.login", "failed", actor_sub=username, metadata={"reason": "Invalid credentials"})
             flash("Invalid credentials.", "danger")
             return redirect(url_for("login"))
@@ -952,6 +985,12 @@ def reset_user_mfa(user_id):
     if not user:
         flash("User not found.", "danger")
         return redirect(url_for("manage_users"))
+
+    # Tenant scope: admins can only reset MFA for users in their tenant
+    if not current_user.has_role("super_admin") and user.tenant_id != current_user.tenant_id:
+        flash("Access denied.", "danger")
+        return redirect(url_for("manage_users"))
+
     user.mfa_enabled = False
     user.mfa_secret = None
     db.session.commit()
@@ -1059,6 +1098,7 @@ def delete_group(group_id):
 
 @app.route("/sigma/refresh", methods=["POST"])
 @login_required
+@admin_required
 def sigma_refresh():
     if not _require_csrf():
         return _safe_redirect(request.referrer)
@@ -1071,6 +1111,7 @@ def sigma_refresh():
 
 @app.route("/sigma/sync", methods=["POST"])
 @login_required
+@admin_required
 def sigma_sync():
     if not _require_csrf():
         return _safe_redirect(request.referrer)
@@ -1593,6 +1634,10 @@ def log_analyzer():
                 return _safe_redirect(request.url, "log_analyzer")
             filename, path, _ = _build_upload_path(file.filename)
             file.save(path)
+            if os.path.getsize(path) > LOG_MAX_UPLOAD_BYTES:
+                _safe_unlink(path)
+                flash(f"Log file is too large (max {LOG_MAX_UPLOAD_BYTES // (1024 * 1024)} MB).", "danger")
+                return _safe_redirect(request.url, "log_analyzer")
             if not is_safe_content(path, "log"):
                 _safe_unlink(path)
                 flash("Invalid content.", "danger")
@@ -1684,6 +1729,7 @@ def network_analyzer():
 @login_required
 def memory_helper():
     playbook = None
+    history_id = None
     helper_sheets = _helper_cheatsheets()
 
     if request.method == "POST":
@@ -1708,13 +1754,13 @@ def memory_helper():
             "events": events,
             "playbook": playbook,
         }
-        LAST_RESULTS["memory"] = results
         ship_events(events, "memory", tenant_id=current_user.tenant_id)
-        save_history("memory_playbook", results)
+        history_id = save_history("memory_playbook", results).id
 
     return render_template(
         "memory_helper.html",
         playbook=playbook,
+        history_id=history_id,
         helper_sheets=helper_sheets,
     )
 
@@ -1797,37 +1843,30 @@ def memory_triage():
         parsed_output=parsed_output,
     )
 
+def _accessible_history_query():
+    """History rows the current user may read: super_admin all, admin own tenant, others own rows."""
+    query = AnalysisHistory.query
+    if current_user.has_role("super_admin"):
+        return query
+    query = query.filter(AnalysisHistory.tenant_id == current_user.tenant_id)
+    if not current_user.has_role("admin"):
+        query = query.filter(AnalysisHistory.user_id == current_user.id)
+    return query
+
+
 @app.route("/history")
 @login_required
 def history():
-    query = AnalysisHistory.query.order_by(AnalysisHistory.timestamp.desc())
-    if current_user.has_role("super_admin"):
-        pass  # super_admin sees all
-    elif current_user.has_role("admin"):
-        query = query.filter(AnalysisHistory.tenant_id == current_user.tenant_id)
-    else:
-        query = query.filter(
-            AnalysisHistory.tenant_id == current_user.tenant_id,
-            AnalysisHistory.user_id == current_user.id,
-        )
-    analyses = query.all()
+    analyses = _accessible_history_query().order_by(AnalysisHistory.timestamp.desc()).all()
     return render_template("history.html", analyses=analyses)
 
 @app.route("/history/view/<int:id>")
 @login_required
 def view_history(id):
-    analysis = db.session.get(AnalysisHistory, id)
+    analysis = _accessible_history_query().filter(AnalysisHistory.id == id).first()
     if not analysis:
-        flash("Not found.", "danger")
+        flash("Not found or permission denied.", "danger")
         return redirect(url_for('history'))
-    # Tenant + ownership scope
-    if not current_user.has_role("super_admin"):
-        if analysis.tenant_id != current_user.tenant_id:
-            flash("Permission denied.", "danger")
-            return redirect(url_for("history"))
-        if not current_user.has_role("admin") and analysis.user_id != current_user.id:
-            flash("Permission denied.", "danger")
-            return redirect(url_for("history"))
     results = analysis.get_results()
     if not isinstance(results, dict):
         flash("Invalid analysis data.", "danger")
@@ -1849,13 +1888,10 @@ def view_history(id):
             db.session.rollback()
 
     if analysis.type == "logs":
-         LAST_RESULTS["logs"] = results
-         return render_template("log_analyzer.html", results=results, sigma_matches=sigma_matches, historical=True)
+         return render_template("log_analyzer.html", results=results, sigma_matches=sigma_matches, historical=True, history_id=analysis.id)
     elif analysis.type == "network":
-         LAST_RESULTS["network"] = results
-         return render_template("network_analyzer.html", results=results, sigma_matches=sigma_matches, historical=True)
+         return render_template("network_analyzer.html", results=results, sigma_matches=sigma_matches, historical=True, history_id=analysis.id)
     elif "memory" in analysis.type:
-         LAST_RESULTS["memory"] = results
          if analysis.type == "memory_playbook":
              playbook = results.get("playbook") or results
              return render_template(
@@ -1864,6 +1900,7 @@ def view_history(id):
                  helper_sheets=_helper_cheatsheets(),
                  active_tab="generate",
                  historical=True,
+                 history_id=analysis.id,
              )
          if analysis.type == "memory_triage":
              parsed_output = results.get("parsed_output") or results
@@ -1872,6 +1909,7 @@ def view_history(id):
                  parsed_output=parsed_output,
                  sigma_matches=sigma_matches,
                  historical=True,
+                 history_id=analysis.id,
              )
          parsed_output = results.get("parsed_output")
          if parsed_output is None and results.get("summary") is not None:
@@ -1882,6 +1920,7 @@ def view_history(id):
                  parsed_output=parsed_output,
                  sigma_matches=sigma_matches,
                  historical=True,
+                 history_id=analysis.id,
              )
          return redirect(url_for("history"))
     return redirect(url_for('history'))
@@ -1922,7 +1961,8 @@ def reset_data():
     if not _require_csrf():
         return _safe_redirect(request.referrer, "dashboard")
     try:
-        _purge_analysis_data()
+        # Only super_admin may wipe every tenant; tenant admins purge their own tenant.
+        _purge_analysis_data(None if current_user.has_role("super_admin") else current_user.tenant_id)
         flash("History reset.", "success")
     except Exception:
         db.session.rollback()
@@ -1940,6 +1980,17 @@ def save_history(type, results, filename=None):
     history.set_results(results)
     db.session.add(history)
     db.session.commit()
+    return history
+
+
+def _history_results(history_id: int, type_prefix: str):
+    """Results of an analysis the current user may read, or None (same scope as the history views)."""
+    analysis = _accessible_history_query().filter(AnalysisHistory.id == history_id).first()
+    if not analysis or not (analysis.type or "").startswith(type_prefix):
+        return None
+    results = analysis.get_results()
+    return results if isinstance(results, dict) else None
+
 
 def _export_events_json(results, filename_default: str):
     if not results:
@@ -1969,10 +2020,10 @@ def _export_events_csv(events, fieldnames, filename_default: str):
     resp.headers["Content-Disposition"] = f"attachment; filename={filename_default}"
     return resp
 
-@app.route("/export/logs/<fmt>")
+@app.route("/export/logs/<int:history_id>/<fmt>")
 @login_required
-def export_logs(fmt: str):
-    results = LAST_RESULTS.get("logs")
+def export_logs(history_id: int, fmt: str):
+    results = _history_results(history_id, "logs")
     if not results:
         flash("No log analysis results to export yet.", "warning")
         return redirect(url_for("log_analyzer"))
@@ -2003,10 +2054,10 @@ def export_logs(fmt: str):
     flash("Unsupported export format.", "danger")
     return redirect(url_for("log_analyzer"))
 
-@app.route("/export/network/<fmt>")
+@app.route("/export/network/<int:history_id>/<fmt>")
 @login_required
-def export_network(fmt: str):
-    results = LAST_RESULTS.get("network")
+def export_network(history_id: int, fmt: str):
+    results = _history_results(history_id, "network")
     if not results:
         flash("No network analysis results to export yet.", "warning")
         return redirect(url_for("network_analyzer"))
@@ -2038,10 +2089,10 @@ def export_network(fmt: str):
     flash("Unsupported export format.", "danger")
     return redirect(url_for("network_analyzer"))
 
-@app.route("/export/memory/<fmt>")
+@app.route("/export/memory/<int:history_id>/<fmt>")
 @login_required
-def export_memory(fmt: str):
-    results = LAST_RESULTS.get("memory")
+def export_memory(history_id: int, fmt: str):
+    results = _history_results(history_id, "memory")
     if not results:
         flash("No memory analysis results to export yet.", "warning")
         return redirect(url_for("memory_triage"))
@@ -2080,26 +2131,17 @@ def export_memory(fmt: str):
 def export_report_bundle():
     buf = io.BytesIO()
     now = datetime.utcnow().isoformat() + "Z"
-    config = {
-        "generated_at_utc": now,
-        "app": "Forensis",
-        "env": {
-            "FORENSIS_ELASTIC_URL": os.getenv("FORENSIS_ELASTIC_URL", ""),
-            "FORENSIS_ELASTIC_INDEX": os.getenv("FORENSIS_ELASTIC_INDEX", ""),
-            "FORENSIS_OPENSEARCH_URL": os.getenv("FORENSIS_OPENSEARCH_URL", ""),
-            "FORENSIS_OPENSEARCH_INDEX": os.getenv("FORENSIS_OPENSEARCH_INDEX", ""),
-            "FORENSIS_LOKI_URL": os.getenv("FORENSIS_LOKI_URL", ""),
-            "FORENSIS_LOKI_LABELS": os.getenv("FORENSIS_LOKI_LABELS", ""),
-            "FORENSIS_CLICKHOUSE_URL": os.getenv("FORENSIS_CLICKHOUSE_URL", ""),
-            "FORENSIS_CLICKHOUSE_DB": os.getenv("FORENSIS_CLICKHOUSE_DB", ""),
-            "FORENSIS_CLICKHOUSE_TABLE": os.getenv("FORENSIS_CLICKHOUSE_TABLE", ""),
-            "FORENSIS_SIGMA_URLS": os.getenv("FORENSIS_SIGMA_URLS", ""),
-        },
-    }
 
-    logs = LAST_RESULTS.get("logs")
-    network = LAST_RESULTS.get("network")
-    memory = LAST_RESULTS.get("memory")
+    # Latest analysis of each type that the current user may read.
+    latest = _accessible_history_query().order_by(AnalysisHistory.timestamp.desc())
+    logs, network, memory = (
+        row.get_results() if row else None
+        for row in (
+            latest.filter(AnalysisHistory.type == "logs").first(),
+            latest.filter(AnalysisHistory.type == "network").first(),
+            latest.filter(AnalysisHistory.type.like("memory%")).first(),
+        )
+    )
 
     rules_meta = []
     for r in sigma_engine.rules:
@@ -2114,7 +2156,6 @@ def export_report_bundle():
         )
 
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("config/env.json", json.dumps(config, indent=2, default=str))
         zf.writestr("sigma/rules.json", json.dumps(rules_meta, indent=2, default=str))
         if logs:
             zf.writestr("results/logs.json", json.dumps(logs, indent=2, default=str))
@@ -2135,7 +2176,6 @@ def export_report_bundle():
             "README_report.txt",
             "Forensis Report Bundle\n\n"
             "This archive contains:\n"
-            "- config/env.json\n"
             "- sigma/rules.json\n"
             "- results/*.json\n"
             "- summary.json\n",
@@ -2169,7 +2209,10 @@ def _bootstrap_database():
     _ensure_runtime_indexes()
     admin_user = os.getenv("FORENSIS_ADMIN_USER", "admin")
     if not User.query.filter_by(username=admin_user).first():
-        admin_pass = os.getenv("FORENSIS_ADMIN_PASSWORD", "forensis123")
+        admin_pass = os.getenv("FORENSIS_ADMIN_PASSWORD", "").strip()
+        generated = not admin_pass
+        if generated:
+            admin_pass = secrets.token_urlsafe(16)
         hashed_pw = bcrypt.generate_password_hash(admin_pass).decode("utf-8")
         default_group = Group.query.filter_by(name="Administrators").first()
         if not default_group:
@@ -2184,12 +2227,24 @@ def _bootstrap_database():
         )
         db.session.add(new_admin)
         db.session.commit()
+        if generated:
+            app.logger.warning(
+                "Created admin user %r with generated password: %s (shown once; set FORENSIS_ADMIN_PASSWORD to choose it)",
+                admin_user,
+                admin_pass,
+            )
 
 
 with app.app_context():
     run_bootstrap = os.getenv("FORENSIS_BOOTSTRAP_DB", "1").strip().lower() in {"1", "true", "yes", "on"}
     if run_bootstrap:
-        _bootstrap_database()
+        # gunicorn workers import the app concurrently; unserialized, two of them race to migrate and create the
+        # admin, and the loser's IntegrityError makes the master exit ("Worker failed to boot").
+        # shortcut: per-host lock; use a DB advisory lock if several web containers bootstrap one database.
+        with open(os.path.join(tempfile.gettempdir(), "forensis-bootstrap.lock"), "a") as bootstrap_lock:
+            if fcntl:
+                fcntl.flock(bootstrap_lock, fcntl.LOCK_EX)
+            _bootstrap_database()
 
 
 if __name__ == "__main__":

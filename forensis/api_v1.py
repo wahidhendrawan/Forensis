@@ -3,6 +3,7 @@
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required, login_user, logout_user
 
+from forensis import login_throttle
 from forensis.analyzers.correlation_engine import correlate_recent_analyses
 from forensis.audit import audit_log
 from forensis.models import AnalysisHistory, User
@@ -37,6 +38,8 @@ def auth_me():
 
 @api.route("/auth/login", methods=["POST"])
 def auth_login():
+    if login_throttle.is_throttled():
+        return jsonify({"error": "Too many failed login attempts"}), 429
     data = request.get_json(silent=True) or {}
     username = (data.get("username") or "").strip()
     password = (data.get("password") or "").strip()
@@ -47,6 +50,7 @@ def auth_login():
 
     bcrypt = Bcrypt()
     if not user or not bcrypt.check_password_hash(user.password_hash, password):
+        login_throttle.record_failure()
         audit_log(
             "auth.login",
             "failed",
@@ -60,6 +64,8 @@ def auth_login():
         import pyotp
 
         if not otp or not pyotp.TOTP(user.mfa_secret).verify(otp):
+            if otp:
+                login_throttle.record_failure()
             audit_log(
                 "auth.login",
                 "failed",

@@ -2,10 +2,10 @@ import csv
 import io
 import json
 import re
-import xml.etree.ElementTree as ET
 from collections import Counter
 from typing import Dict, List, Tuple
 
+import defusedxml.ElementTree as ET
 import yaml
 
 PLAYBOOKS = {
@@ -264,7 +264,7 @@ def _parse_yaml_blob(raw_output: str) -> List[Dict]:
 def _parse_xml_blob(raw_output: str) -> List[Dict]:
     try:
         root = ET.fromstring(raw_output)
-    except ET.ParseError:
+    except (ET.ParseError, ValueError):  # ValueError covers defusedxml's forbidden DTD/entity errors
         return []
 
     rows = []

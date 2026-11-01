@@ -14,6 +14,9 @@ from flask_bcrypt import Bcrypt
 # Set test environment before importing the module-level Flask application.
 os.environ["FORENSIS_DB_URI"] = "sqlite:///:memory:"
 os.environ["FORENSIS_BOOTSTRAP_DB"] = "0"
+os.environ.setdefault("FORENSIS_SECRET_KEY", "test-secret-key")
+# Keep the login throttle in-process so tests never wait on a Redis connection.
+os.environ["FORENSIS_RATELIMIT_REDIS_URL"] = ""
 
 # python-magic requires a host libmagic installation. MIME detection is not under
 # test here, so provide a deterministic substitute when the native library is absent.
@@ -33,13 +36,14 @@ import requests
 
 _real_requests_get = requests.get
 requests.get = lambda *_args, **_kwargs: SimpleNamespace(
-    status_code=503, content=b"", text=""
+    status_code=503, headers={}, content=b"", text="", close=lambda: None
 )
 try:
     from app import app as _app
 finally:
     requests.get = _real_requests_get
 
+from forensis import login_throttle
 from forensis.models import db, User, Group
 
 
@@ -56,6 +60,7 @@ def app():
 @pytest.fixture
 def client(app):
     """Create Flask test client."""
+    login_throttle._local.clear()
     with app.app_context():
         db.create_all()
         yield app.test_client()

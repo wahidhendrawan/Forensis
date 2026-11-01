@@ -45,8 +45,8 @@
     <div class="col-12 d-flex justify-content-between align-items-center">
         <h4>Analysis Results</h4>
         <div class="btn-group btn-group-sm">
-            <a href="{{ url_for('export_logs', fmt='json') }}" class="btn btn-outline-secondary">Export JSON</a>
-            <a href="{{ url_for('export_logs', fmt='csv') }}" class="btn btn-outline-secondary">Export CSV</a>
+            <a href="{{ url_for('export_logs', history_id=history_id, fmt='json') }}" class="btn btn-outline-secondary">Export JSON</a>
+            <a href="{{ url_for('export_logs', history_id=history_id, fmt='csv') }}" class="btn btn-outline-secondary">Export CSV</a>
         </div>
     </div>
 </div>

@@ -396,3 +396,103 @@ class TestJobArtifactTenantIntegrity:
         data = resp.get_json()
         # API response must mask the foreign artifact (line 1493-1495 in app.py)
         assert data["artifact"] is None
+
+
+class TestLoginThrottle:
+    """Repeated failed logins from one client are rejected with 429, on both login endpoints."""
+
+    def test_form_login_throttled(self, client, admin_user, monkeypatch):
+        from forensis import login_throttle
+
+        monkeypatch.setattr(login_throttle, "MAX_FAILURES", 3)
+        for _ in range(3):
+            client.post("/login", data={"username": admin_user, "password": "wrong"})
+        resp = client.post("/login", data={"username": admin_user, "password": "password123"})
+        assert resp.status_code == 429
+
+    def test_api_login_throttled(self, client, admin_user, monkeypatch):
+        from forensis import login_throttle
+
+        monkeypatch.setattr(login_throttle, "MAX_FAILURES", 3)
+        for _ in range(3):
+            assert client.post("/api/v1/auth/login", json={"username": admin_user, "password": "x"}).status_code == 401
+        resp = client.post("/api/v1/auth/login", json={"username": admin_user, "password": "password123"})
+        assert resp.status_code == 429
+
+
+class TestSessionAndSecretDefaults:
+    def test_session_cookie_samesite_lax(self, client):
+        resp = client.get("/login")
+        assert "SameSite=Lax" in resp.headers.get("Set-Cookie", "")
+
+    def test_secret_key_generated_once_and_private(self, tmp_path, monkeypatch):
+        from app import _load_or_create_secret_key
+
+        monkeypatch.delenv("FORENSIS_SECRET_KEY", raising=False)
+        key = _load_or_create_secret_key(str(tmp_path))
+        assert len(key) >= 32 and key != "change-me-in-production"
+        assert _load_or_create_secret_key(str(tmp_path)) == key
+        assert (tmp_path / "secret_key").stat().st_mode & 0o777 == 0o600
+        monkeypatch.setenv("FORENSIS_SECRET_KEY", "from-env")
+        assert _load_or_create_secret_key(str(tmp_path)) == "from-env"
+
+    def test_bootstrap_admin_gets_random_password(self, app, client, monkeypatch, caplog):
+        import app as app_module
+        from flask_bcrypt import Bcrypt
+
+        monkeypatch.setenv("FORENSIS_USE_ALEMBIC", "0")
+        monkeypatch.setenv("FORENSIS_ADMIN_USER", "boot_admin")
+        monkeypatch.delenv("FORENSIS_ADMIN_PASSWORD", raising=False)
+        with app.app_context(), caplog.at_level("WARNING"):
+            app_module._bootstrap_database()
+            admin = User.query.filter_by(username="boot_admin").one()
+            password = next(r.args[1] for r in caplog.records if "generated password" in r.getMessage())
+            assert not Bcrypt(app).check_password_hash(admin.password_hash, "forensis123")
+            assert Bcrypt(app).check_password_hash(admin.password_hash, password)
+
+
+class TestRequestBodyLimits:
+    def test_max_content_length_covers_upload_caps(self, app):
+        from app import MEMORY_IMAGE_MAX_BYTES, PCAP_MAX_UPLOAD_BYTES
+
+        assert app.config["MAX_CONTENT_LENGTH"] >= max(PCAP_MAX_UPLOAD_BYTES, MEMORY_IMAGE_MAX_BYTES)
+
+    def test_oversized_request_rejected_with_413(self, app, admin_client, monkeypatch):
+        monkeypatch.setitem(app.config, "MAX_CONTENT_LENGTH", 1024)
+        resp = admin_client.post(
+            "/log-analyzer",
+            data={"log_file": (io.BytesIO(b"x" * 4096), "big.log")},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 413
+
+    def test_log_upload_over_cap_not_queued(self, admin_client, monkeypatch):
+        import app as app_module
+
+        monkeypatch.setattr(app_module, "LOG_MAX_UPLOAD_BYTES", 16)
+
+        def _must_not_queue(*_args, **_kwargs):
+            raise AssertionError("oversized log was queued")
+
+        monkeypatch.setattr(app_module.process_logs_task, "apply_async", _must_not_queue)
+        with admin_client.session_transaction() as sess:
+            sess["_csrf_token"] = "tok"
+        resp = admin_client.post(
+            "/log-analyzer",
+            data={"csrf_token": "tok", "log_file": (io.BytesIO(b"GET / 200\n" * 10), "big.log")},
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        assert b"too large" in resp.data
+
+
+class TestXmlEntityExpansion:
+    def test_billion_laughs_rejected(self):
+        from forensis.analyzers.playbook_engine import _parse_xml_blob
+
+        bomb = (
+            '<?xml version="1.0"?><!DOCTYPE r [<!ENTITY a "aaaaaaaaaa">'
+            '<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;"><!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">]>'
+            "<r><item><v>&c;</v></item></r>"
+        )
+        assert _parse_xml_blob(bomb) == []
