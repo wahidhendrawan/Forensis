@@ -8,7 +8,7 @@ import tarfile
 import tempfile
 import shutil
 from typing import List, Dict
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 import yaml
 
 try:
@@ -26,6 +26,7 @@ except ImportError:
     fcntl = None  # type: ignore
 
 MAX_REMOTE_URLS = 20
+MAX_REDIRECTS = 5
 MAX_REMOTE_RULE_BYTES = 1024 * 1024
 SIGMAHQ_DEFAULT_REPO = "SigmaHQ/sigma"
 SIGMAHQ_DEFAULT_COMMIT = "994da16651194500b607a3007186c29779e1f961"
@@ -37,10 +38,10 @@ SIGMAHQ_BASELINE_MAX_RULE_FILE_BYTES = 2 * 1024 * 1024
 
 def _is_private_ip(ip_str: str) -> bool:
     try:
-        ip = ipaddress.ip_address(ip_str)
-        return ip.is_private or ip.is_loopback or ip.is_link_local
+        # is_global also rules out loopback, link-local (cloud metadata), CGNAT and reserved ranges.
+        return not ipaddress.ip_address(ip_str).is_global
     except ValueError:
-        return False
+        return True  # unparseable address: fail closed
 
 
 def _is_safe_url(url: str) -> bool:
@@ -62,6 +63,25 @@ def _is_safe_url(url: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _safe_get(url: str, timeout: int, max_bytes: int):
+    """GET the body of url, re-checking _is_safe_url on every redirect hop; None if unsafe, not 200 or over max_bytes."""
+    for _ in range(MAX_REDIRECTS + 1):
+        if not _is_safe_url(url):
+            return None
+        resp = requests.get(url, timeout=timeout, allow_redirects=False, stream=True)
+        try:
+            if resp.status_code in (301, 302, 303, 307, 308):
+                url = urljoin(url, resp.headers.get("Location", ""))
+                continue
+            if resp.status_code != 200:
+                return None
+            body = resp.raw.read(max_bytes + 1, decode_content=True)
+            return body if len(body) <= max_bytes else None
+        finally:
+            resp.close()
+    return None
 
 
 class SigmaRule:
@@ -247,18 +267,10 @@ class SigmaEngine:
     def _download_sigmahq_archive(self):
         if not requests:
             return None
-        url = self._sigmahq_archive_url()
-        if not _is_safe_url(url):
-            return None
         try:
-            resp = requests.get(url, timeout=SIGMAHQ_BASELINE_TIMEOUT)
+            return _safe_get(self._sigmahq_archive_url(), SIGMAHQ_BASELINE_TIMEOUT, SIGMAHQ_BASELINE_MAX_ARCHIVE_BYTES)
         except Exception:
             return None
-        if resp.status_code != 200:
-            return None
-        if len(resp.content) > SIGMAHQ_BASELINE_MAX_ARCHIVE_BYTES:
-            return None
-        return resp.content
 
     def _extract_sigmahq_rules(self, archive_bytes: bytes, target_dir: str) -> int:
         rule_prefix = f"{self.baseline_rules_subdir}/"
@@ -422,16 +434,12 @@ class SigmaEngine:
         os.makedirs(self.remote_dir, exist_ok=True)
         imported = 0
         for idx, url in enumerate(urls[:MAX_REMOTE_URLS]):
-            if not _is_safe_url(url):
-                continue
             try:
-                resp = requests.get(url, timeout=10)
-                if resp.status_code != 200:
-                    continue
-                if len(resp.content) > MAX_REMOTE_RULE_BYTES:
+                body = _safe_get(url, 10, MAX_REMOTE_RULE_BYTES)
+                if body is None:
                     continue
 
-                content = resp.text or ""
+                content = body.decode("utf-8", errors="replace")
                 preview = content[:2048].lower()
                 if "<html" in preview or "<!doctype html" in preview:
                     continue

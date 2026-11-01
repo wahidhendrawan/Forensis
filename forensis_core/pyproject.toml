@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin==1.16.0"]
+build-backend = "maturin"
+
+[project]
+name = "forensis-core"
+description = "Native (Rust) PCAP flow engine for Forensis; optional, dpkt stays the reference"
+requires-python = ">=3.11"
+license = "GPL-3.0-only"
+dynamic = ["version"]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+locked = true

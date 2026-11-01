@@ -17,9 +17,13 @@ threat_intel/lookup_cache.json
 
 # Database
 instance/*.db
+instance/secret_key
 *.sqlite
 *.sqlite3
 
 # Logs
 *.log
 !qa_datasets/logs/*.log
+
+# Rust extension build output (forensis_core)
+forensis_core/target/

@@ -7,6 +7,8 @@ import hashlib
 from collections import Counter
 from typing import Dict, List, Tuple
 
+from forensis.analyzers.entity_profile import _safe_load_json
+
 try:
     import requests
 except Exception:
@@ -77,19 +79,6 @@ def _safe_int_env(name: str, default: int, min_value: int = None, max_value: int
     if max_value is not None and value > max_value:
         value = max_value
     return value
-
-
-def _safe_load_json(path: str, fallback):
-    if not os.path.isfile(path):
-        return fallback
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        return fallback
-    return fallback
 
 
 def _normalize_indicator(ind_type: str, value: str):

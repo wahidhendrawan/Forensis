@@ -1,6 +1,6 @@
 services:
   redis:
-    image: redis:alpine
+    image: redis:alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
     container_name: forensis_redis
     environment:
       - TZ=Asia/Jakarta
@@ -8,7 +8,6 @@ services:
   forensis:
     build: .
     container_name: forensis
-    command: gunicorn -w 2 -k gthread --threads 4 -b 0.0.0.0:5000 --timeout 180 app:app
     ports:
       - "5000:5000"
     env_file:
@@ -24,7 +23,6 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - .:/app
       - ./uploads:/app/uploads
       - ./instance:/app/instance
 
@@ -32,6 +30,8 @@ services:
     build: .
     container_name: forensis_worker
     command: celery -A app.celery worker --loglevel=info -Q logs,network,memory,rules,celery --prefetch-multiplier=1 -O fair
+    healthcheck:
+      disable: true
     env_file:
       - .env
     environment:
@@ -45,7 +45,6 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - .:/app
       - ./uploads:/app/uploads
       - ./instance:/app/instance
 
@@ -54,6 +53,8 @@ services:
     container_name: forensis_worker_logs
     profiles: ["dfir-prod"]
     command: celery -A app.celery worker --loglevel=info -Q logs --concurrency=4 --prefetch-multiplier=1 -O fair
+    healthcheck:
+      disable: true
     env_file:
       - .env
     environment:
@@ -67,7 +68,6 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - .:/app
       - ./uploads:/app/uploads
       - ./instance:/app/instance
 
@@ -76,6 +76,8 @@ services:
     container_name: forensis_worker_network
     profiles: ["dfir-prod"]
     command: celery -A app.celery worker --loglevel=info -Q network --concurrency=2 --prefetch-multiplier=1 -O fair
+    healthcheck:
+      disable: true
     env_file:
       - .env
     environment:
@@ -89,7 +91,6 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - .:/app
       - ./uploads:/app/uploads
       - ./instance:/app/instance
 
@@ -98,6 +99,8 @@ services:
     container_name: forensis_worker_memory
     profiles: ["dfir-prod"]
     command: celery -A app.celery worker --loglevel=info -Q memory --concurrency=2 --prefetch-multiplier=1 -O fair
+    healthcheck:
+      disable: true
     env_file:
       - .env
     environment:
@@ -111,7 +114,6 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - .:/app
       - ./uploads:/app/uploads
       - ./instance:/app/instance
 
@@ -120,6 +122,8 @@ services:
     container_name: forensis_worker_rules
     profiles: ["dfir-prod"]
     command: celery -A app.celery worker --loglevel=info -Q rules --concurrency=2 --prefetch-multiplier=1 -O fair
+    healthcheck:
+      disable: true
     env_file:
       - .env
     environment:
@@ -133,20 +137,19 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - .:/app
       - ./uploads:/app/uploads
       - ./instance:/app/instance
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     container_name: forensis_postgres
     environment:
       - POSTGRES_DB=${FORENSIS_POSTGRES_DB:-forensis}
       - POSTGRES_USER=${FORENSIS_POSTGRES_USER:-forensis}
-      - POSTGRES_PASSWORD=${FORENSIS_POSTGRES_PASSWORD:-forensis_change_me}
+      - POSTGRES_PASSWORD=${FORENSIS_POSTGRES_PASSWORD:?set FORENSIS_POSTGRES_PASSWORD in .env}
       - TZ=Asia/Jakarta
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${FORENSIS_POSTGRES_USER:-forensis} -d ${FORENSIS_POSTGRES_DB:-forensis}"]
       interval: 5s
@@ -162,26 +165,20 @@ services:
     command: server /data --console-address ":9001"
     environment:
       - MINIO_ROOT_USER=${FORENSIS_MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${FORENSIS_MINIO_ROOT_PASSWORD:-minio_change_me_please}
+      - MINIO_ROOT_PASSWORD=${FORENSIS_MINIO_ROOT_PASSWORD:?set FORENSIS_MINIO_ROOT_PASSWORD in .env}
       - TZ=Asia/Jakarta
-    ports:
-      - "9000:9000"
-      - "9001:9001"
     volumes:
       - minio_data:/data
 
   rabbitmq:
-    image: rabbitmq:3.13-management-alpine
+    image: rabbitmq:3.13-management-alpine@sha256:606d8c0d6b3c18d1da9afc53bc7cdb2a8d5486df91b5a9830e9e07626c9ae281
     container_name: forensis_rabbitmq
     profiles: ["dfir-prod"]
     environment:
       - TZ=Asia/Jakarta
-    ports:
-      - "5672:5672"
-      - "15672:15672"
 
   opensearch:
-    image: opensearchproject/opensearch:2.15.0
+    image: opensearchproject/opensearch:2.15.0@sha256:1963b3ece46dfe1a17cd633fb2e9cea22bd20753a295f39c2f513ce0070cad42
     container_name: forensis_opensearch
     profiles: ["dfir-prod"]
     environment:
@@ -189,14 +186,11 @@ services:
       - DISABLE_SECURITY_PLUGIN=true
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
       - TZ=Asia/Jakarta
-    ports:
-      - "9200:9200"
-      - "9600:9600"
     volumes:
       - opensearch_data:/usr/share/opensearch/data
 
   opensearch_dashboards:
-    image: opensearchproject/opensearch-dashboards:2.15.0
+    image: opensearchproject/opensearch-dashboards:2.15.0@sha256:b7c26c60bfafcbb90c538316570b84bab85f5dc82339aa7feefc3014274c689e
     container_name: forensis_opensearch_dashboards
     profiles: ["dfir-prod"]
     environment:
@@ -206,17 +200,14 @@ services:
     depends_on:
       - opensearch
     ports:
-      - "5601:5601"
+      - "127.0.0.1:5601:5601"
 
   clickhouse:
-    image: clickhouse/clickhouse-server:24.8
+    image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b
     container_name: forensis_clickhouse
     profiles: ["dfir-analytics"]
     environment:
       - TZ=Asia/Jakarta
-    ports:
-      - "8123:8123"
-      - "9000:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./deploy/clickhouse/init:/docker-entrypoint-initdb.d:ro

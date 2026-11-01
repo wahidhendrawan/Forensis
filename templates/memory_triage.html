@@ -38,8 +38,8 @@
         <div class="d-flex align-items-center gap-2">
             <span class="badge bg-danger">{{ parsed_output.summary.suspicious_hits }} Suspicious Hits</span>
             <div class="btn-group btn-group-sm">
-                <a href="{{ url_for('export_memory', fmt='json') }}" class="btn btn-outline-secondary">Export JSON</a>
-                <a href="{{ url_for('export_memory', fmt='csv') }}" class="btn btn-outline-secondary">Export CSV</a>
+                <a href="{{ url_for('export_memory', history_id=history_id, fmt='json') }}" class="btn btn-outline-secondary">Export JSON</a>
+                <a href="{{ url_for('export_memory', history_id=history_id, fmt='csv') }}" class="btn btn-outline-secondary">Export CSV</a>
             </div>
         </div>
     </div>
