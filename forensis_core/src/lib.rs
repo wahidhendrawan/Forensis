@@ -1,13 +1,15 @@
 //! Native engines for Forensis. `analyze_pcap` returns exactly what
 //! `forensis.analyzers.network_analyzer._analyze_pcap_python` (the dpkt reference) returns;
-//! `classify_events` (logs.rs) mirrors `log_analyzer._classify_event` and `correlate_sigma`
-//! (sigma.rs) mirrors `sigma_engine._CompiledRule.match` the same way.
+//! `classify_events` (logs.rs) mirrors `log_analyzer._classify_event`, `correlate_sigma`
+//! (sigma.rs) mirrors `sigma_engine._CompiledRule.match` and `extract_indicators` (threat.rs)
+//! mirrors `threat_intel.ThreatIntelEngine.extract_indicators` the same way.
 
 mod capture;
 mod logs;
 mod packet;
 mod sigma;
 mod text;
+mod threat;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -474,7 +476,8 @@ fn analyze_pcap<'py>(
     Ok(out)
 }
 
-/// Native (Rust) engines for Forensis: PCAP flows, log event classification, Sigma matching.
+/// Native (Rust) engines for Forensis: PCAP flows, log event classification, Sigma matching,
+/// threat intel indicator extraction.
 #[pymodule]
 mod forensis_core {
     use pyo3::prelude::*;
@@ -487,6 +490,9 @@ mod forensis_core {
 
     #[pymodule_export]
     use super::sigma::correlate_sigma;
+
+    #[pymodule_export]
+    use super::threat::extract_indicators;
 
     #[pymodule_init]
     fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {

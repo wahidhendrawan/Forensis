@@ -17,7 +17,7 @@ const TEXT_KEYS: [&str; 7] = [
 const BATCH: usize = 4096;
 
 /// `str(obj)` as text. Lone surrogates become U+FFFD; the text is only matched, never returned.
-fn text_of(obj: &Bound<'_, PyAny>) -> PyResult<String> {
+pub(crate) fn text_of(obj: &Bound<'_, PyAny>) -> PyResult<String> {
     Ok(match obj.cast::<PyString>() {
         Ok(s) => s.to_string_lossy().into_owned(),
         Err(_) => obj.str()?.to_string_lossy().into_owned(),

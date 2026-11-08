@@ -1,5 +1,6 @@
 import ipaddress
 import json
+import logging
 import os
 import re
 import time
@@ -13,6 +14,13 @@ try:
     import requests
 except Exception:
     requests = None  # type: ignore
+
+try:  # optional Rust engine (forensis_core/); the Python code below stays the reference
+    from forensis_core import extract_indicators as _native_extract_indicators, __version__ as _native_version
+except ImportError:
+    _native_extract_indicators = None
+
+logger = logging.getLogger(__name__)
 
 
 IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
@@ -462,6 +470,18 @@ class ThreatIntelEngine:
             out.append(key)
         return out
 
+    def _extract_all(self, events: List[Dict]):
+        if _native_extract_indicators is not None:
+            logger.info("Threat intel engine: rust (forensis_core %s)", _native_version)
+            return _native_extract_indicators(
+                events,
+                IP_REGEX.pattern,
+                DOMAIN_REGEX.pattern,
+                [SHA256_REGEX.pattern, SHA1_REGEX.pattern, MD5_REGEX.pattern],
+            )
+        logger.info("Threat intel engine: python")
+        return [self.extract_indicators(evt) for evt in events]
+
     def enrich_events(self, events: List[Dict], source_type: str):
         self._otx_lookups = 0
         source = str(source_type or "").lower()
@@ -472,9 +492,10 @@ class ThreatIntelEngine:
         severity_counts = Counter()
         indicator_counter = Counter()
 
-        for idx, evt in enumerate(events[:2000]):
+        events = events[:2000]
+        for idx, (evt, indicators) in enumerate(zip(events, self._extract_all(events))):
             evt_hits = []
-            for ind_type, value in self.extract_indicators(evt):
+            for ind_type, value in indicators:
                 res = self.lookup_indicator(ind_type, value, source_type=source_type)
                 if not res.get("matched"):
                     continue
