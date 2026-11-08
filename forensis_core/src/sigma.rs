@@ -8,6 +8,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString};
 
+use crate::text::py_strip;
+
 enum Mode {
     Contains,
     Eq,
@@ -47,11 +49,6 @@ struct Field {
 }
 
 type Event = HashMap<String, Field>;
-
-/// `str.strip()`: Unicode White_Space plus U+001C..U+001F, which CPython also treats as space.
-fn py_strip(s: &str) -> &str {
-    s.trim_matches(|c: char| c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c))
-}
 
 /// `fnmatch.fnmatch(text, pat)` for patterns without `[`: `*` any run, `?` one char, whole string.
 fn glob(text: &[char], pat: &[char]) -> bool {
