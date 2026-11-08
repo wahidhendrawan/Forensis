@@ -4,7 +4,8 @@
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyInt, PyList, PyString};
-use regex::Regex;
+
+use crate::text::compile;
 
 /// `_event_source` keys, in `or` order.
 const SOURCE_KEYS: [&str; 5] = ["ip", "host", "src_ip", "source_ip", "client_ip"];
@@ -14,13 +15,6 @@ const TEXT_KEYS: [&str; 7] = [
 ];
 /// Events per GIL-free matching batch (bounds the texts held at once).
 const BATCH: usize = 4096;
-
-/// A Python `re` pattern compiled for the regex crate with the reference's `re.I`.
-fn compile(pattern: &str) -> PyResult<Regex> {
-    // shortcut: the regex crate's Unicode tables for \s, \b and case folding differ from CPython's on a
-    // few non-ASCII code points (C0 controls, combining marks); translate those classes if such logs matter
-    Regex::new(&format!("(?i){pattern}")).map_err(|e| PyValueError::new_err(e.to_string()))
-}
 
 /// `str(obj)` as text. Lone surrogates become U+FFFD; the text is only matched, never returned.
 fn text_of(obj: &Bound<'_, PyAny>) -> PyResult<String> {
@@ -152,9 +146,9 @@ pub fn classify_events<'py>(
 ) -> PyResult<Bound<'py, PyList>> {
     let rules = patterns
         .iter()
-        .map(|p| compile(p))
+        .map(|p| compile(p, true))
         .collect::<PyResult<Vec<_>>>()?;
-    let auth = compile(&auth_pattern)?;
+    let auth = compile(&auth_pattern, true)?;
     let int_builtin = py.import("builtins")?.getattr("int")?;
     let source_keys: Vec<_> = SOURCE_KEYS.iter().map(|k| PyString::new(py, k)).collect();
     let text_keys: Vec<_> = TEXT_KEYS.iter().map(|k| PyString::new(py, k)).collect();

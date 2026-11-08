@@ -7,6 +7,7 @@ mod capture;
 mod logs;
 mod packet;
 mod sigma;
+mod text;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

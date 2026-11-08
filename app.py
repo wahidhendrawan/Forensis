@@ -150,11 +150,12 @@ OTX_API_KEY_SETTING = "otx_api_key"
 OTX_API_KEY_MIN_LEN = 16
 OTX_API_KEY_MAX_LEN = 256
 OTX_API_KEY_REGEX = re.compile(r"^[A-Za-z0-9_\-]{16,256}$")
-SIGMA_MAX_EVENTS_DEFAULT = _env_int("FORENSIS_SIGMA_MAX_EVENTS", 900, min_value=100, max_value=5000)
+# Sigma rules are compiled once and matched natively (forensis_core), so 3000 events take about a second.
+SIGMA_MAX_EVENTS_DEFAULT = _env_int("FORENSIS_SIGMA_MAX_EVENTS", 3000, min_value=100, max_value=5000)
 SIGMA_MAX_MATCHES_DEFAULT = _env_int("FORENSIS_SIGMA_MAX_MATCHES", 1500, min_value=50, max_value=10000)
-SIGMA_MAX_EVENTS_LOGS = _env_int("FORENSIS_SIGMA_MAX_EVENTS_LOGS", 900, min_value=100, max_value=5000)
-SIGMA_MAX_EVENTS_NETWORK = _env_int("FORENSIS_SIGMA_MAX_EVENTS_NETWORK", 250, min_value=50, max_value=2000)
-SIGMA_MAX_EVENTS_MEMORY = _env_int("FORENSIS_SIGMA_MAX_EVENTS_MEMORY", 700, min_value=100, max_value=5000)
+SIGMA_MAX_EVENTS_LOGS = _env_int("FORENSIS_SIGMA_MAX_EVENTS_LOGS", 3000, min_value=100, max_value=5000)
+SIGMA_MAX_EVENTS_NETWORK = _env_int("FORENSIS_SIGMA_MAX_EVENTS_NETWORK", 1000, min_value=50, max_value=2000)
+SIGMA_MAX_EVENTS_MEMORY = _env_int("FORENSIS_SIGMA_MAX_EVENTS_MEMORY", 3000, min_value=100, max_value=5000)
 NETWORK_EVENTS_STORE_LIMIT = _env_int("FORENSIS_NETWORK_EVENTS_STORE_LIMIT", 900, min_value=200, max_value=5000)
 NETWORK_ANOMALIES_STORE_LIMIT = _env_int("FORENSIS_NETWORK_ANOMALIES_STORE_LIMIT", 500, min_value=100, max_value=5000)
 ASYNC_SIGMA_POSTPROCESS = os.getenv("FORENSIS_ASYNC_SIGMA_POSTPROCESS", "1").strip().lower() in {"1", "true", "yes", "on"}

@@ -1,5 +1,5 @@
 # Production image for Forensis: compilers stay in the build stages, the app runs as a non-root user under gunicorn.
-# Rust toolchain for the native PCAP engine (forensis_core); only its wheel reaches the runtime image.
+# Rust toolchain for the native engines (forensis_core); only its wheel reaches the runtime image.
 FROM rust:1.99.1-slim-trixie@sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247 AS rust
 
 FROM python:3.14-slim@sha256:cd89c30eda26ee911a4611b18680086e0ea42e6f5f8cbe653d07fa7958c9cec8 AS build
