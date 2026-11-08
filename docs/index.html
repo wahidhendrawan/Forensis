@@ -90,10 +90,10 @@ footer a{color:var(--accent)}
 <h2>Full investigation toolkit</h2>
 <p class="subtitle">From alert to report in one platform.</p>
 <div class="grid">
-<div class="card"><div class="card-icon">📄</div><h3>Log Analysis</h3><p>Parse Apache, Syslog, CSV, JSON, Elastic, and Splunk formats with automated anomaly detection.</p></div>
+<div class="card"><div class="card-icon">📄</div><h3>Log Analysis</h3><p>Parse Apache, Syslog, CSV, JSON, Elastic, and Splunk formats with automated anomaly detection; the pattern scan runs in a native Rust engine.</p></div>
 <div class="card"><div class="card-icon">🧠</div><h3>Memory Triage</h3><p>Extract process trees, network connections, and injected code from memory dumps quickly.</p></div>
-<div class="card"><div class="card-icon">🌐</div><h3>Network Forensics</h3><p>PCAP analysis, DNS query inspection, connection mapping, and C2 beacon detection.</p></div>
-<div class="card"><div class="card-icon">⚡</div><h3>Sigma Correlation</h3><p>Real-time event matching against Sigma rules during live investigations.</p></div>
+<div class="card"><div class="card-icon">🌐</div><h3>Network Forensics</h3><p>PCAP analysis, DNS query inspection, connection mapping, and C2 beacon detection, with a Rust PCAP engine that matches the Python reference byte for byte.</p></div>
+<div class="card"><div class="card-icon">⚡</div><h3>Sigma Correlation</h3><p>Event matching against the full SigmaHQ baseline during investigations. Rules are compiled once and matched in Rust: 3,000 events against 3,100 rules in about a second.</p></div>
 <div class="card"><div class="card-icon">📒</div><h3>Playbook Helper</h3><p>Guided investigation steps with checklists, evidence collection prompts, and chain of custody.</p></div>
 <div class="card"><div class="card-icon">🔐</div><h3>MFA Admin</h3><p>Secure multi-user access with MFA, role-based permissions, and audit logging.</p></div>
 </div>
