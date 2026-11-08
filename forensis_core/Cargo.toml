@@ -3,7 +3,7 @@ name = "forensis_core"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
-description = "Native PCAP flow engine for Forensis (dpkt-compatible)"
+description = "Native engines for Forensis: PCAP flows (dpkt-compatible) and log event classification"
 license = "GPL-3.0-only"
 publish = false
 
@@ -13,6 +13,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.30.1", features = ["abi3-py311"] }
+regex = "1.13.1"
 
 [profile.release]
 lto = "thin"
