@@ -1,6 +1,7 @@
 import os
 import io
 import json
+import logging
 import socket
 import re
 import fnmatch
@@ -24,6 +25,13 @@ try:
     import fcntl  # Unix-only advisory lock for baseline refresh.
 except ImportError:
     fcntl = None  # type: ignore
+
+try:  # optional Rust engine (forensis_core/); the Python matcher below stays the reference
+    from forensis_core import correlate_sigma as _native_correlate, __version__ as _native_version
+except ImportError:
+    _native_correlate = None
+
+logger = logging.getLogger(__name__)
 
 MAX_REMOTE_URLS = 20
 MAX_REDIRECTS = 5
@@ -84,6 +92,161 @@ def _safe_get(url: str, timeout: int, max_bytes: int):
     return None
 
 
+NATIVE_MODES = {"contains", "eq", "startswith", "endswith", "glob"}
+
+
+def _flatten(event: Dict) -> Dict[str, str]:
+    """Event fields as strings, one level of nesting unpacked, with lower-cased keys added."""
+    fields: Dict[str, str] = {}
+    for k, v in event.items():
+        if isinstance(v, dict):
+            for kk, vv in v.items():
+                fields[str(kk)] = str(vv)
+                fields[str(kk).lower()] = str(vv)
+        else:
+            fields[str(k)] = str(v)
+            fields[str(k).lower()] = str(v)
+    return fields
+
+
+def _compile_value(mod: str, expected):
+    """(mode, exp) for one expected value; exp is lower-cased except for regex and numeric modes."""
+    exp = str(expected).strip()
+    exp_lower = exp.lower()
+    if mod in {"eq", "exact"}:
+        return ("eq", exp_lower)
+    if mod in {"startswith", "endswith"}:
+        return (mod, exp_lower)
+    if mod in {"regex", "re"}:
+        return ("regex", exp)
+    if mod in {"gt", "gte", "lt", "lte"}:
+        return (mod, exp)
+    if "*" in exp_lower or "?" in exp_lower:
+        return ("glob", exp_lower)
+    return ("contains", exp_lower)
+
+
+def _match_value(actual: str, mode: str, exp: str) -> bool:
+    sval = str(actual).strip()
+    if not sval or not exp:
+        return False
+    sval_lower = sval.lower()
+    if mode == "eq":
+        return sval_lower == exp
+    if mode == "startswith":
+        return sval_lower.startswith(exp)
+    if mode == "endswith":
+        return sval_lower.endswith(exp)
+    if mode == "regex":
+        try:
+            return re.search(exp, sval, flags=re.I) is not None
+        except re.error:
+            return False
+    if mode in {"gt", "gte", "lt", "lte"}:
+        try:
+            left = float(sval)
+            right = float(exp)
+        except ValueError:
+            return False
+        if mode == "gt":
+            return left > right
+        if mode == "gte":
+            return left >= right
+        if mode == "lt":
+            return left < right
+        return left <= right
+    if mode == "glob":
+        return fnmatch.fnmatch(sval_lower, exp)
+    return exp in sval_lower
+
+
+def _compile_condition(expression: str, names: Dict[str, int]):
+    """The condition grammar of the reference as a tree: ("sel", i) | ("any", [...]) | ("all", [...]) | ("false",)."""
+    cond = (expression or "").strip()
+    if not cond:
+        return ("false",)
+    cond_l = cond.lower()
+    if cond in names:
+        return ("sel", names[cond])
+    if cond_l == "selection" and "selection" in names:
+        return ("sel", names["selection"])
+    if cond_l == "1 of them":
+        return ("any", [("sel", i) for i in names.values()])
+    if cond_l == "all of them":
+        return ("all", [("sel", i) for i in names.values()])
+    if cond_l.startswith("1 of "):
+        pattern = cond[5:].strip()
+        return ("any", [("sel", i) for name, i in names.items() if fnmatch.fnmatch(name, pattern)])
+    if cond_l.startswith("all of "):
+        pattern = cond[7:].strip()
+        named = [("sel", i) for name, i in names.items() if fnmatch.fnmatch(name, pattern)]
+        return ("all", named) if named else ("false",)
+    if re.search(r"\s+and\s+", cond, flags=re.I):
+        return ("all", [_compile_condition(part, names) for part in re.split(r"\s+and\s+", cond, flags=re.I)])
+    if re.search(r"\s+or\s+", cond, flags=re.I):
+        return ("any", [_compile_condition(part, names) for part in re.split(r"\s+or\s+", cond, flags=re.I)])
+    return ("false",)
+
+
+class _CompiledRule:
+    """A rule's detection block parsed once; `match` is the reference matcher, `native` says whether
+    every value can be matched by forensis_core (no regex, numeric or bracket-glob values)."""
+
+    __slots__ = ("selections", "condition", "native")
+
+    def __init__(self, detection):
+        detection = detection if isinstance(detection, dict) else {}
+        self.selections = []  # [[(field, field_lower, [(mode, exp), ...]), ...], ...]
+        names: Dict[str, int] = {}
+        for name, sel in detection.items():
+            if not isinstance(sel, dict):
+                continue
+            items = []
+            for field_expr, expected in sel.items():
+                parts = str(field_expr).split("|", 1)
+                field = parts[0].strip()
+                modifier = parts[1].strip() if len(parts) > 1 else "contains"
+                mod = (modifier or "contains").lower()
+                values = expected if isinstance(expected, list) else [expected]
+                items.append((field, field.lower(), [_compile_value(mod, e) for e in values]))
+            names[str(name)] = len(self.selections)
+            self.selections.append(items)
+        self.condition = _compile_condition(str(detection.get("condition", "selection")), names) if names else ("false",)
+        self.native = all(
+            mode in NATIVE_MODES and not (mode == "glob" and "[" in exp)
+            for items in self.selections
+            for _, _, values in items
+            for mode, exp in values
+        )
+
+    def _match_selection(self, fields: Dict[str, str], items) -> bool:
+        for field, field_lower, values in items:
+            if not field:
+                return False
+            value = fields.get(field) or fields.get(field_lower)
+            if value is None:
+                return False
+            if not any(_match_value(value, mode, exp) for mode, exp in values):
+                return False
+        return True
+
+    def _eval(self, fields: Dict[str, str], node) -> bool:
+        kind = node[0]
+        if kind == "sel":
+            return self._match_selection(fields, self.selections[node[1]])
+        if kind == "any":
+            return any(self._eval(fields, child) for child in node[1])
+        if kind == "all":
+            return all(self._eval(fields, child) for child in node[1])
+        return False
+
+    def match(self, fields: Dict[str, str]) -> bool:
+        return self._eval(fields, self.condition)
+
+    def as_native(self):
+        return (self.selections, self.condition)
+
+
 class SigmaRule:
     def __init__(self, raw: Dict):
         self.raw = raw
@@ -93,118 +256,10 @@ class SigmaRule:
         self.level = raw.get("level")
         self.logsource = raw.get("logsource", {})
         self.detection = raw.get("detection", {})
+        self.compiled = _CompiledRule(self.detection)
 
     def match_event(self, event: Dict) -> bool:
-        detection = self.detection or {}
-        condition = detection.get("condition", "selection")
-        selections = {
-            str(name): sel
-            for name, sel in detection.items()
-            if isinstance(sel, dict)
-        }
-        if not selections:
-            return False
-
-        # Flatten event fields and keep case-insensitive lookup.
-        fields: Dict[str, str] = {}
-        for k, v in event.items():
-            if isinstance(v, dict):
-                for kk, vv in v.items():
-                    fields[str(kk)] = str(vv)
-                    fields[str(kk).lower()] = str(vv)
-            else:
-                fields[str(k)] = str(v)
-                fields[str(k).lower()] = str(v)
-
-        def _match_value(actual: str, expected, modifier: str) -> bool:
-            sval = str(actual).strip()
-            exp = str(expected).strip()
-            if not sval or not exp:
-                return False
-
-            mod = (modifier or "contains").lower()
-            sval_lower = sval.lower()
-            exp_lower = exp.lower()
-
-            if mod in {"eq", "exact"}:
-                return sval_lower == exp_lower
-            if mod == "startswith":
-                return sval_lower.startswith(exp_lower)
-            if mod == "endswith":
-                return sval_lower.endswith(exp_lower)
-            if mod in {"regex", "re"}:
-                try:
-                    return re.search(exp, sval, flags=re.I) is not None
-                except re.error:
-                    return False
-            if mod in {"gt", "gte", "lt", "lte"}:
-                try:
-                    left = float(sval)
-                    right = float(exp)
-                except ValueError:
-                    return False
-                if mod == "gt":
-                    return left > right
-                if mod == "gte":
-                    return left >= right
-                if mod == "lt":
-                    return left < right
-                return left <= right
-            if "*" in exp_lower or "?" in exp_lower:
-                return fnmatch.fnmatch(sval_lower, exp_lower)
-            return exp_lower in sval_lower
-
-        def match_selection(sel: Dict) -> bool:
-            for field_expr, expected in sel.items():
-                expr = str(field_expr)
-                parts = expr.split("|", 1)
-                field = parts[0].strip()
-                modifier = parts[1].strip() if len(parts) > 1 else "contains"
-                if not field:
-                    return False
-                value = fields.get(field) or fields.get(field.lower())
-                if value is None:
-                    return False
-                if isinstance(expected, list):
-                    if not any(_match_value(str(value), e, modifier) for e in expected):
-                        return False
-                else:
-                    if not _match_value(str(value), expected, modifier):
-                        return False
-            return True
-
-        def _eval_condition(expression: str) -> bool:
-            cond = (expression or "").strip()
-            if not cond:
-                return False
-            cond_l = cond.lower()
-
-            if cond in selections:
-                return match_selection(selections[cond])
-            if cond_l == "selection" and "selection" in selections:
-                return match_selection(selections["selection"])
-            if cond_l == "1 of them":
-                return any(match_selection(sel) for sel in selections.values())
-            if cond_l == "all of them":
-                return all(match_selection(sel) for sel in selections.values())
-            if cond_l.startswith("1 of "):
-                pattern = cond[5:].strip()
-                named = [name for name in selections if fnmatch.fnmatch(name, pattern)]
-                return any(match_selection(selections[name]) for name in named)
-            if cond_l.startswith("all of "):
-                pattern = cond[7:].strip()
-                named = [name for name in selections if fnmatch.fnmatch(name, pattern)]
-                return bool(named) and all(match_selection(selections[name]) for name in named)
-            if re.search(r"\s+and\s+", cond, flags=re.I):
-                parts = re.split(r"\s+and\s+", cond, flags=re.I)
-                return all(_eval_condition(part) for part in parts)
-            if re.search(r"\s+or\s+", cond, flags=re.I):
-                parts = re.split(r"\s+or\s+", cond, flags=re.I)
-                return any(_eval_condition(part) for part in parts)
-
-            return False
-
-        return _eval_condition(str(condition))
+        return self.compiled.match(_flatten(event))
 
 
 class SigmaEngine:
@@ -483,34 +538,52 @@ class SigmaEngine:
     def correlate_events(self, events: List[Dict], max_events: int = None, max_matches: int = None):
         if not isinstance(events, list) or not self.rules:
             return []
-        event_limit = None
-        if isinstance(max_events, int) and max_events > 0:
-            event_limit = max_events
-        match_limit = None
-        if isinstance(max_matches, int) and max_matches > 0:
-            match_limit = max_matches
+        event_limit = max_events if isinstance(max_events, int) and max_events > 0 else len(events)
+        match_limit = max_matches if isinstance(max_matches, int) and max_matches > 0 else None
 
-        matches = []
-        for idx, evt in enumerate(events):
-            if event_limit is not None and idx >= event_limit:
-                break
-            if not isinstance(evt, dict):
+        flat = [_flatten(evt) if isinstance(evt, dict) else None for evt in events[:event_limit]]
+        pairs = self._match_pairs(flat, match_limit)
+        return [
+            {
+                "event_index": idx,
+                "rule_id": self.rules[ri].id,
+                "rule_title": self.rules[ri].title,
+                "rule_level": self.rules[ri].level,
+                "description": self.rules[ri].description,
+                "event": events[idx],
+            }
+            for idx, ri in pairs
+        ]
+
+    def _match_pairs(self, flat, match_limit):
+        """(event_index, rule_index) in event-then-rule order, at most match_limit of them."""
+        if _native_correlate is None:
+            logger.info("Sigma engine: python")
+            rules = list(enumerate(self.rules))
+            return self._match_pairs_python(flat, rules, match_limit)
+        logger.info("Sigma engine: rust (forensis_core %s)", _native_version)
+        native = [(ri, rule.compiled.as_native()) for ri, rule in enumerate(self.rules) if rule.compiled.native]
+        pairs = [(idx, native[pos][0]) for idx, pos in _native_correlate(flat, [c for _, c in native], match_limit)]
+        python_rules = [(ri, rule) for ri, rule in enumerate(self.rules) if not rule.compiled.native]
+        if python_rules:
+            # Events past the match_limit-th native pair cannot contribute: their pairs would sort after it.
+            last_idx = pairs[-1][0] if match_limit is not None and len(pairs) >= match_limit else len(flat) - 1
+            pairs += self._match_pairs_python(flat[: last_idx + 1], python_rules, match_limit)
+            pairs.sort()
+        return pairs[:match_limit] if match_limit is not None else pairs
+
+    @staticmethod
+    def _match_pairs_python(flat, rules, match_limit):
+        pairs = []
+        for idx, fields in enumerate(flat):
+            if fields is None:
                 continue
-            for rule in self.rules:
+            for ri, rule in rules:
                 try:
-                    if rule.match_event(evt):
-                        matches.append(
-                            {
-                                "event_index": idx,
-                                "rule_id": rule.id,
-                                "rule_title": rule.title,
-                                "rule_level": rule.level,
-                                "description": rule.description,
-                                "event": evt,
-                            }
-                        )
-                        if match_limit is not None and len(matches) >= match_limit:
-                            return matches
+                    if rule.compiled.match(fields):
+                        pairs.append((idx, ri))
+                        if match_limit is not None and len(pairs) >= match_limit:
+                            return pairs
                 except Exception:
                     continue
-        return matches
+        return pairs
