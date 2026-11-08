@@ -26,9 +26,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Build native PCAP engine (Rust)
+      - name: Build native engines (Rust)
         run: |
-          # Runner's stable Rust + maturin pinned in forensis_core/pyproject.toml; the unit tests then check dpkt parity.
+          # Runner's stable Rust + maturin pinned in forensis_core/pyproject.toml; the unit tests then check parity with the Python references.
           pip install ./forensis_core
           python -c "import forensis_core; print('forensis_core', forensis_core.__version__)"
 

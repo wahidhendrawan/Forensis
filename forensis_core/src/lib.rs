@@ -1,7 +1,9 @@
-//! Native PCAP engine for Forensis. `analyze_pcap` returns exactly what
-//! `forensis.analyzers.network_analyzer._analyze_pcap_python` (the dpkt reference) returns.
+//! Native engines for Forensis. `analyze_pcap` returns exactly what
+//! `forensis.analyzers.network_analyzer._analyze_pcap_python` (the dpkt reference) returns;
+//! `classify_events` (logs.rs) mirrors `log_analyzer._classify_event` the same way.
 
 mod capture;
+mod logs;
 mod packet;
 
 use std::collections::{HashMap, HashSet};
@@ -469,13 +471,16 @@ fn analyze_pcap<'py>(
     Ok(out)
 }
 
-/// Native (Rust) PCAP flow engine for Forensis.
+/// Native (Rust) engines for Forensis: PCAP flows and log event classification.
 #[pymodule]
 mod forensis_core {
     use pyo3::prelude::*;
 
     #[pymodule_export]
     use super::analyze_pcap;
+
+    #[pymodule_export]
+    use super::logs::classify_events;
 
     #[pymodule_init]
     fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {

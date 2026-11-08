@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "forensis-core"
-description = "Native (Rust) PCAP flow engine for Forensis; optional, dpkt stays the reference"
+description = "Native (Rust) engines for Forensis (PCAP flows, log event classification); optional, the Python code stays the reference"
 requires-python = ">=3.11"
 license = "GPL-3.0-only"
 dynamic = ["version"]

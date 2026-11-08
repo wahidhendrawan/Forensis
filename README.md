@@ -269,9 +269,9 @@ python -m pytest
 
 Dependencies: edit `requirements.in`, then regenerate the pinned lockfile with `pip-compile --strip-extras --no-emit-index-url --output-file=requirements.txt requirements.in` (pip-tools, run on the Dockerfile's Python).
 
-### Native PCAP engine (optional)
+### Native engines (optional)
 
-`forensis_core/` is a small Rust extension (PyO3 + maturin, no `unsafe`) that parses PCAP/PCAPNG uploads and builds the network flow results with the GIL released. `forensis/analyzers/network_analyzer.py` uses it when it can be imported and otherwise runs the pure-Python dpkt implementation, which stays the reference: both return identical results (`tests/test_pcap_engine.py` checks parity and fuzzes malformed captures), and the worker log line `PCAP engine: rust` / `PCAP engine: python` shows which one ran. The Docker image always builds it; locally it needs a Rust toolchain (https://rustup.rs):
+`forensis_core/` is a small Rust extension (PyO3 + maturin, no `unsafe`) with two engines. `analyze_pcap` parses PCAP/PCAPNG uploads and builds the network flow results with the GIL released; `forensis/analyzers/network_analyzer.py` uses it when it can be imported and otherwise runs the pure-Python dpkt implementation, which stays the reference: both return identical results (`tests/test_pcap_engine.py` checks parity and fuzzes malformed captures). `classify_events` does the per-event scanning of the log analyzer (text assembly, URL decoding, the malicious-pattern regexes) in batches with the GIL released; `forensis/analyzers/log_analyzer.py` keeps parsing and correlation in Python and `_classify_event` as the reference (`tests/test_log_engine.py` checks parity and fuzzes payloads). The worker log lines `PCAP engine: rust|python` and `Log engine: rust|python` show which one ran. The Docker image always builds it; locally it needs a Rust toolchain (https://rustup.rs):
 
 ```bash
 pip install ./forensis_core   # builds and installs the wheel; rerun after changing the Rust code

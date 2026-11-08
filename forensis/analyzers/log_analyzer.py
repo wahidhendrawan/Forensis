@@ -2,8 +2,16 @@ import re
 import csv
 import json
 import io
+import logging
 from collections import Counter, defaultdict
 from urllib.parse import unquote_plus
+
+try:  # optional Rust engine (forensis_core/); the Python code below stays the reference
+    from forensis_core import classify_events as _native_classify_events, __version__ as _native_version
+except ImportError:
+    _native_classify_events = None
+
+logger = logging.getLogger(__name__)
 
 APACHE_REGEX = re.compile(
     r'(?P<ip>\S+) \S+ \S+ \[(?P<time>[^\]]+)\] "(?P<method>\S+)\s(?P<path>\S+)[^"]*" (?P<status>\d{3}) (?P<size>\S+)'
@@ -201,6 +209,28 @@ def _event_text(evt: dict) -> str:
     return f"{raw_text} {decoded}"
 
 
+def _classify_event(evt: dict):
+    """The per-event work of analyze_logs: (source, status, path, auth_failure, pattern_rule_index)."""
+    msg = _event_text(evt)
+    rule_index = next((i for i, rule in enumerate(PATTERN_RULES) if rule["regex"].search(msg)), None)
+    path = evt.get("path")
+    return (
+        _event_source(evt),
+        _to_int(evt.get("status")),
+        str(path) if path else None,
+        bool(AUTH_FAILURE_REGEX.search(msg)),
+        rule_index,
+    )
+
+
+def _classify_events(events):
+    if _native_classify_events is not None:
+        logger.info("Log engine: rust (forensis_core %s)", _native_version)
+        return _native_classify_events(events, [r["regex"].pattern for r in PATTERN_RULES], AUTH_FAILURE_REGEX.pattern)
+    logger.info("Log engine: python")
+    return [_classify_event(evt) for evt in events]
+
+
 def _append_anomaly(anomalies, seen, reason, event, severity="medium", category="suspicious_pattern", indicator=None):
     raw = str(event.get("raw", event.get("message", "")))[:600]
     key = (reason, raw, severity, category, indicator or "")
@@ -275,11 +305,9 @@ def analyze_logs(text: str, log_type: str = "generic"):
     source_5xx = Counter()
     source_unique_paths = defaultdict(set)
 
-    for evt in events:
-        src = _event_source(evt)
+    for evt, (src, status, path, auth_failure, rule_index) in zip(events, _classify_events(events)):
         counters["by_source"][src] += 1
 
-        status = _to_int(evt.get("status"))
         if status is not None:
             counters["by_status"][status] += 1
             if 400 <= status < 500:
@@ -289,27 +317,24 @@ def analyze_logs(text: str, log_type: str = "generic"):
             if status in {401, 403}:
                 source_auth_failures[src] += 1
 
-        path = evt.get("path")
-        if path:
-            source_unique_paths[src].add(str(path))
+        if path is not None:
+            source_unique_paths[src].add(path)
 
-        msg = _event_text(evt)
-        if AUTH_FAILURE_REGEX.search(msg):
+        if auth_failure:
             source_auth_failures[src] += 1
 
-        for rule in PATTERN_RULES:
-            if rule["regex"].search(msg):
-                _append_anomaly(
-                    anomalies,
-                    anomaly_seen,
-                    rule["reason"],
-                    evt,
-                    severity=rule["severity"],
-                    category=rule["category"],
-                    indicator=rule["name"],
-                )
-                severity_counts[rule["severity"]] += 1
-                break
+        if rule_index is not None:
+            rule = PATTERN_RULES[rule_index]
+            _append_anomaly(
+                anomalies,
+                anomaly_seen,
+                rule["reason"],
+                evt,
+                severity=rule["severity"],
+                category=rule["category"],
+                indicator=rule["name"],
+            )
+            severity_counts[rule["severity"]] += 1
 
     for src, count in source_auth_failures.items():
         if count >= 5:
